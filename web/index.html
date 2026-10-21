@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TaxCity</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <meta name="description" content="An agent-based 3D city simulator for comparing tax regimes: Georgism, income, wealth, property, Harberger and more." />
+  </head>
+  <body>
+    <header id="topbar">
+      <div class="brand">TaxCity <span class="muted">— emergent city economics</span></div>
+      <div class="controls">
+        <button id="play" title="Play / pause (space)">▶</button>
+        <button id="step" title="Advance one year">+1y</button>
+        <label title="Simulated months per second">speed
+          <select id="speed">
+            <option value="2">2 mo/s</option>
+            <option value="6" selected>6 mo/s</option>
+            <option value="12">1 yr/s</option>
+            <option value="24">2 yr/s</option>
+            <option value="60">5 yr/s</option>
+          </select>
+        </label>
+        <span id="clock" class="clock">year 0.0</span>
+        <span id="perf" class="muted"></span>
+      </div>
+      <div class="controls">
+        <label title="Run a second, identical city (same seed) under a baseline policy and compare">compare with
+          <select id="baseline"><option value="">— none —</option></select>
+        </label>
+        <label title="Random seed: same seed = same terrain and same random draws">seed <input id="seed" type="number" value="1" min="1" /></label>
+        <label title="Map size (cells of 40 m)">map
+          <select id="size">
+            <option value="96">96²</option>
+            <option value="128" selected>128²</option>
+            <option value="160">160²</option>
+            <option value="192">192²</option>
+          </select>
+        </label>
+        <button id="reset" title="Restart the simulation with the current policy">↺ restart</button>
+      </div>
+    </header>
+    <main>
+      <aside id="left">
+        <h2>Policy</h2>
+        <div id="policy"></div>
+      </aside>
+      <section id="view">
+        <div id="overlay-bar"></div>
+        <div id="legend" hidden></div>
+        <div id="events-legend">
+          <span style="--c:#ffd040">sale</span><span style="--c:#ff4040">forced sale</span><span style="--c:#ffa020">construction</span>
+          <span style="--c:#60ff90">completed</span><span style="--c:#ff2020">firm closed</span><span style="--c:#30ff60">new park</span>
+          <span style="--c:#60d0ff">arrivals</span><span style="--c:#ff6040">departures</span><span style="--c:#ffd700">wealthy departures</span>
+        </div>
+        <div id="inspector" hidden></div>
+        <div id="toast" hidden></div>
+      </section>
+      <aside id="right">
+        <div id="kpis"></div>
+        <div id="charts"></div>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

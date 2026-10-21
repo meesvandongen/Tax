@@ -1,0 +1,24 @@
+{
+  "name": "taxcity-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "wasm": "cd .. && cargo build --release --target wasm32-unknown-unknown -p sim-wasm && mkdir -p web/public && cp target/wasm32-unknown-unknown/release/sim_wasm.wasm web/public/sim.wasm",
+    "dev": "npm run wasm && vite",
+    "build": "npm run wasm && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "three": "^0.186.1",
+    "uplot": "^1.6.32"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "playwright-core": "^1.56.1",
+    "typescript": "5.9",
+    "vite": "^7.3.7"
+  }
+}

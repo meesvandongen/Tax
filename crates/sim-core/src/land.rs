@@ -11,9 +11,8 @@ use crate::world::{Event, World};
 /// would fetch from a typical (absentee) investor for its best permitted
 /// project, given local rents, occupancy and the tax schedule. Nothing the
 /// owner has built enters, so a land tax stays a fixed charge. Recent sale
-/// prices (net of the building) are blended in, values are floored at
-/// agricultural use, and assessors smooth over several rounds (≈ 2 years);
-/// owners appeal assessments more than 10% above the current value.
+/// prices of unbuilt land are blended in, values are floored at
+/// agricultural use, and assessors smooth over several rounds (≈ 1 year).
 /// Land without street access can only be farmed until a road arrives, so it
 /// is assessed as farmland.
 pub fn assess(w: &mut World, force: bool) {
@@ -35,17 +34,23 @@ pub fn assess(w: &mut World, force: bool) {
         let site =
             if w.p.in_city[i] || w.p.road_access[i] { econ::self_consistent_site_value(w, i, &inv) } else { 0.0 };
         let mut land = site.max(farm);
-        if w.p.months_since_sale[i] < 24 && w.p.price[i] > 0.0 && u != LandUse::Construction {
-            let sale_land = (w.p.price[i] as f64 - bldg).max(0.0);
-            land = (2.0 * land + sale_land) / 3.0;
+        // Only sales of unbuilt land are land comparables. A built parcel
+        // sells with its building and its leases (a sitting tenant may pay
+        // far above market rent), so price minus replacement cost is not
+        // land value.
+        if w.p.months_since_sale[i] < 24
+            && w.p.price[i] > 0.0
+            && matches!(u, LandUse::Wild | LandUse::Farm | LandUse::Vacant)
+        {
+            land = (2.0 * land + w.p.price[i] as f64) / 3.0;
         }
         let eps = 1.0 + noise * w.rng.normal().clamp(-2.5, 2.5);
         let fresh = (land.max(farm) * eps).max(0.0) as f32;
         let old = w.p.assessed_land[i];
-        let smoothed = if force || old <= 0.0 { fresh } else { 0.75 * old + 0.25 * fresh };
-        // Owners appeal assessments well above the current market value, so
-        // smoothing only delays increases.
-        w.p.assessed_land[i] = smoothed.min((1.1 * land.max(farm)) as f32);
+        // Symmetric smoothing: the best-project residual is a thin margin of
+        // value over construction cost, which a nearby project start or a
+        // quarter's dip in expected occupancy can wipe out for a quarter.
+        w.p.assessed_land[i] = if force || old <= 0.0 { fresh } else { 0.75 * old + 0.25 * fresh };
         w.p.assessed_bldg[i] = bldg as f32;
         if w.p.months_since_sale[i] >= 24 || w.p.price[i] <= 0.0 {
             w.p.price[i] = w.p.assessed_land[i] + w.p.assessed_bldg[i];

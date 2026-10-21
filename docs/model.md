@@ -136,14 +136,19 @@ includes the point (condition 0.12) below which nobody new will rent a dwelling.
 
 ### Land market (`land.rs`)
 
-* **Assessment** (quarterly, smoothed over about 2 years):
+* **Assessment** (quarterly, smoothed symmetrically over about a year):
   * land is valued **as if vacant**: what a typical investor would pay for the site given its best permitted
     project, local rents and occupancy and the tax schedule. Nothing the owner has built enters, so a land tax
     stays a fixed charge;
   * land without street access can only be farmed, so it is assessed as farmland;
-  * recent sale prices (net of the building) are blended in, and values are floored at agricultural value;
+  * recent sale prices of unbuilt land are blended in. A built parcel sells with its building and leases (a sitting
+    tenant may pay far above market rent), so its price minus replacement cost is not a land comparable;
+  * values are floored at agricultural value;
   * with ± assessment noise;
-  * owners **appeal** assessments more than 10% above the current value, so smoothing only delays increases;
+  * the smoothing is symmetric, as in mass appraisal over several years of evidence. The best-project residual is
+    a thin margin of property value over construction cost: a nearby project starting, or a quarter's dip in
+    expected occupancy, can wipe it out and it returns a quarter later. Passing every dip straight through (an
+    instant appeal) made individual parcels' land values collapse and recover within a year or two;
   * the value is **self-consistent with the land tax**: buyers deduct the tax on the assessed land, and the
     assessment is the land value, so the assessor solves `L = V(L)` (property taxes are linear in `L`, so
     `L = V(0) / (1 + c)`). Valuing at last quarter's assessment instead made high assessments produce low values
@@ -176,7 +181,12 @@ includes the point (condition 0.12) below which nobody new will rent a dwelling.
     move if it beats staying.
 * **Rents.** Landlords adjust asking rents to vacancy (their building's and the neighbourhood's) against a natural
   rate of 5%: rents rise in tight markets, faster when households queue (unhoused people, would-be immigrants,
-  households in unlettable dwellings), and fall, more slowly, in slack ones. Leases renew yearly.
+  households in unlettable dwellings), and fall, more slowly, in slack ones. Leases renew yearly. Vacancy moves rents
+  only gently (`housing_rent_adjust`, at most about 6% a year beyond trend growth). Tenants feel a rent only at
+  renewal and leave after months of discontent, so landlords who chased vacancy faster overshot. That made a
+  ten-year citywide rent cycle of ±15%, which the leveraged land residual turned into tenfold land value swings.
+  A full building with people queueing for homes is a shortage landlords can see directly, so there rents rise
+  fast (`housing_queue_response`). That is what lets a young, housing-short city grow.
 * **Consumption.** A buffer-stock rule out of disposable income (after the rent actually paid; owner-occupiers
   pay none) and cash. Part is spent at local shops; the rest is imported.
 * **Migration** (open city):
@@ -201,7 +211,9 @@ includes the point (condition 0.12) below which nobody new will rent a dwelling.
 * **Shops** capture local spending via the Huff gravity model with an outside "shop elsewhere" option. A worker
   can serve at most `retail_output_per_worker` of sales a month; the rest is bought elsewhere.
 * **Business rents:** landlords raise a tenant's rent while it earns a margin above 15% and cut it when the
-  margin falls below 3%; empty premises are offered at falling rents.
+  margin falls below 3%; empty premises are offered at falling rents. A tenant does not pay more than 1.3× what
+  the premises would cost a typical firm (it would move), so a landlord captures the location's rent, not one
+  tenant's productivity.
 * Wages rise when vacancies stay unfilled *and* the extra worker pays. They fall with losses or high
   unemployment.
 * Firms exit after about a year of losses. New firms enter empty premises when expected after-tax profit is
@@ -286,6 +298,12 @@ includes the point (condition 0.12) below which nobody new will rent a dwelling.
 * no household holds absurd cash, and land prices stay finite and do not swing more than threefold within five
   years (after the founding period);
 * bookkeeping: no parcel or firm belongs to a household that has left, and no building blocks a planned street.
+
+The citywide land price index can stay calm while individual parcels boom and bust. So the test suite also
+follows every taxable parcel's assessment for 50 years in a mature Georgist city: 90% of valuable parcels must
+not rise or fall more than threefold and back within any five years. Before the slower residential rent
+adjustment and the symmetric assessment smoothing, the 90th percentile parcel swung about 14× and back on the
+full-size map, and parcels worth millions were reassessed near zero for a year.
 
 An earlier version failed these badly on long runs. Outside owners paid any tax out of nowhere, land was assessed
 from fictional bid-rents, shops could sell any amount per worker, and the road network froze. A 500-year Georgist

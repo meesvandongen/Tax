@@ -106,7 +106,16 @@ pub struct EconParams {
     pub relocation_months: f32,
     /// Monthly agricultural rent per farm parcel (the rural land-use floor).
     pub farm_rent: f32,
+    /// Monthly step by which business landlords move rents.
     pub rent_adjust: f32,
+    /// Monthly step by which residential landlords move asking rents at full
+    /// market tightness. Tenants react to rents only at lease renewal and
+    /// leave after months of discontent, so faster adjustment overshoots
+    /// into a boom/bust rent cycle.
+    pub housing_rent_adjust: f32,
+    /// Monthly rent rise in a full building per unit of housing pressure
+    /// (households queueing for a home, as a share of all households).
+    pub housing_queue_response: f32,
     pub loan_to_value: f32,
     pub mortgage_rate: f32,
     /// Months of rent that an owner extrapolates price trends over.
@@ -176,6 +185,8 @@ impl Default for EconParams {
             relocation_months: 6.0,
             farm_rent: 15.0,
             rent_adjust: 0.015,
+            housing_rent_adjust: 0.005,
+            housing_queue_response: 0.3,
             loan_to_value: 0.7,
             mortgage_rate: 0.05,
             expectation_memory: 24.0,

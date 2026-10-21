@@ -256,3 +256,47 @@ fn land_assessment_is_consistent_with_its_own_tax() {
     }
     assert!(checked > 10);
 }
+
+/// Individual parcels' land values follow their location's fortunes, not a
+/// boom/bust cycle: few parcels' assessments rise or fall more than
+/// threefold and back within five years once the city has matured.
+#[test]
+fn parcel_land_values_do_not_cycle() {
+    let mut cfg = SimConfig { seed: 7, width: 96, height: 96, ..Default::default() };
+    cfg.policy = sim_core::presets::preset("georgist").unwrap();
+    let mut sim = Simulation::new(cfg);
+    sim.run(30 * 12);
+    // Half-yearly snapshots of assessed land, in constant money.
+    let mut series: Vec<Vec<f32>> = Vec::new();
+    for _ in 0..50 * 2 {
+        sim.run(6);
+        let ix = sim.world.index;
+        series.push(sim.world.p.assessed_land.iter().map(|v| v / ix).collect());
+    }
+    let w = &sim.world;
+    let mut worst = Vec::new();
+    for i in 0..w.p.len() {
+        if !sim_core::property::taxable(w, i) || !w.p.land_use[i].is_developable() {
+            continue;
+        }
+        let mut swing = 1f32;
+        for win in series.windows(10) {
+            let v: Vec<f32> = win.iter().map(|s| s[i]).collect();
+            let hi = v.iter().cloned().fold(0f32, f32::max);
+            let lo = v.iter().cloned().fold(f32::INFINITY, f32::min);
+            if hi < 200_000.0 {
+                continue;
+            }
+            // A round trip: a peak above both ends of the window, or a trough below both.
+            let (a, b) = (v[0], v[9]);
+            swing = swing.max(hi / a.max(b).max(1.0)).max(a.min(b) / lo.max(1.0));
+        }
+        if swing > 1.0 {
+            worst.push(swing);
+        }
+    }
+    assert!(worst.len() > 100, "too few valuable parcels: {}", worst.len());
+    worst.sort_by(|a, b| a.total_cmp(b));
+    let p90 = worst[worst.len() * 9 / 10];
+    assert!(p90 < 3.0, "land values cycle: 90th percentile parcel swings {p90:.1}x and back within 5 years");
+}

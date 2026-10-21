@@ -64,7 +64,7 @@ pub fn evict(w: &mut World, id: u32) {
 pub const NATURAL_VACANCY: f32 = 0.05;
 
 pub fn adjust_rents(w: &mut World) {
-    let adj = w.econ.rent_adjust;
+    let adj = w.econ.housing_rent_adjust;
     let pressure = w.housing_pressure();
     let drift = w.econ.outside_growth / 12.0;
     for i in 0..w.p.len() {
@@ -81,8 +81,10 @@ pub fn adjust_rents(w: &mut World) {
         let tightness = ((NATURAL_VACANCY - vac) / NATURAL_VACANCY).clamp(-1.0, 1.0);
         let r = &mut w.p.asking_rent[i];
         if tightness >= 0.0 {
-            let queue = if own_vac <= 0.0 { 3.0 * pressure } else { 0.0 };
-            *r *= 1.0 + drift + adj * (tightness + queue);
+            // A full building with people queueing for homes is a shortage
+            // landlords can see directly, so they raise rents fast.
+            let queue = if own_vac <= 0.0 { pressure } else { 0.0 };
+            *r *= 1.0 + drift + adj * tightness + w.econ.housing_queue_response * queue;
         } else {
             // Rents are sticky downward: landlords cut slowly.
             *r *= 1.0 + 0.6 * adj * tightness;

@@ -158,6 +158,12 @@ pub fn adjust_commercial_rents(w: &mut World) {
                     r *= 1.0 - adj;
                 }
             }
+            // A tenant moves out rather than pay far above what comparable
+            // premises cost a typical firm: the landlord can capture the
+            // location's rent, not the tenant's own productivity.
+            let observed = if u == LandUse::Commercial { w.f.obs_com[i] } else { w.f.obs_ind[i] };
+            let typical = crate::econ::firm_bid_rent(w, i, u, w.p.units[i]).max(0.5 * observed);
+            r = r.min(1.3 * typical);
         }
         w.p.asking_rent[i] = r.max(w.index);
     }

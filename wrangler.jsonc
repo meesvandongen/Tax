@@ -6,5 +6,7 @@
   "compatibility_date": "2026-10-21",
   "assets": {
     "directory": "./web/dist"
-  }
+  },
+  // Pull-request builds deploy a preview, which needs this block.
+  "previews": {}
 }

@@ -1,0 +1,13 @@
+[package]
+name = "sim-wasm"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+description = "Thin WebAssembly C-ABI wrapper around sim-core"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+sim-core = { path = "../sim-core" }
+serde_json.workspace = true

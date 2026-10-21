@@ -1,0 +1,7 @@
+/target
+node_modules
+/web/dist
+/web/public/sim.wasm
+/out
+*.log
+smoke-out

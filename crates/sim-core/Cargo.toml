@@ -1,0 +1,10 @@
+[package]
+name = "sim-core"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+description = "Deterministic agent-based city economy simulation (platform independent)"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

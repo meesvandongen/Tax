@@ -1,0 +1,15 @@
+[package]
+name = "sim-cli"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+description = "Native headless runner: scenarios, parameter sweeps, CSV output"
+
+[[bin]]
+name = "taxsim"
+path = "src/main.rs"
+
+[dependencies]
+sim-core = { path = "../sim-core" }
+serde.workspace = true
+serde_json.workspace = true

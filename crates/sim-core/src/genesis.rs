@@ -80,7 +80,7 @@ pub fn found_settlement(w: &mut World) {
     // Candidate building plots: road-accessible land near the centre.
     let mut plots: Vec<usize> = (0..dims.len())
         .filter(|&i| w.p.road_access[i] && w.p.land_use[i].is_developable() && !w.terrain.water[i])
-        .filter(|&i| dims.manhattan(i, center) <= 14.0 && !crate::government::on_street_grid(w, i))
+        .filter(|&i| dims.manhattan(i, center) <= 14.0 && !crate::government::on_street_plan(w, i))
         .collect();
     plots.sort_by(|&a, &b| dims.manhattan(a, center).total_cmp(&dims.manhattan(b, center)).then(a.cmp(&b)));
 

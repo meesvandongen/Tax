@@ -112,12 +112,15 @@ fn begin_tick(w: &mut World) {
     w.update_labour_slack();
 }
 
+/// Monthly persistence of the export-price cycle.
+pub const CYCLE_PERSISTENCE: f32 = 0.94;
+
 /// Outside world: an AR(1) business cycle on export prices, and the export
 /// price level falling as the city's exports grow large relative to their
 /// market (based on last month's volume).
 fn exogenous(w: &mut World) {
     let shock = 0.015 * w.rng.normal() as f32;
-    w.cycle = (1.0 + 0.94 * (w.cycle - 1.0) + shock).clamp(0.7, 1.3);
+    w.cycle = (1.0 + CYCLE_PERSISTENCE * (w.cycle - 1.0) + shock).clamp(0.7, 1.3);
     let e = &w.cfg.econ;
     if let Some(m) = w.history.last() {
         let real = m.exports / w.index as f64 / w.export_price.max(0.1) as f64;

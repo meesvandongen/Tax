@@ -2,9 +2,11 @@
   // Static-assets-only Worker serving the built web app (no Worker script).
   // Build with `bash scripts/build-web.sh`, deploy with `npx wrangler deploy`.
   "$schema": "https://unpkg.com/wrangler/config-schema.json",
-  "name": "taxcity",
+  "name": "tax",
   "compatibility_date": "2026-10-21",
   "assets": {
     "directory": "./web/dist"
-  }
+  },
+  // Pull-request builds deploy a preview, which needs this block.
+  "previews": {}
 }

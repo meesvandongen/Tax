@@ -35,6 +35,7 @@ export function renderInspector(root: HTMLElement, d: any) {
   if (d.declared) html += row('Self-assessed', money(d.declared), 'Harberger declaration');
   html += row('Taxes last month', money(d.tax_last_month));
   if (d.mortgage > 0) html += row('Mortgage', money(d.mortgage));
+  if (d.street_reserve) html += row('Street reserve', 'future road', 'On the mapped street plan: no building allowed; bought at market value when the road comes');
   if (d.months_held_idle > 0) html += row('Held idle', `${d.months_held_idle} months`, 'Owner judged waiting more profitable than building');
   if (d.owner.kind !== 'government' || d.last_price > 0)
     html += row('Market value', money(d.last_price), d.months_since_sale < 24 ? `sold ${d.months_since_sale} months ago` : 'assessment (no recent sale)');

@@ -229,7 +229,10 @@ pub fn compute(w: &World) -> Metrics {
             }
             farm_rent_total += 12.0 * w.econ.farm_rent as f64 * (0.4 + w.terrain.fertility[i] as f64);
         }
-        if matches!(u, LandUse::Wild | LandUse::Farm | LandUse::Vacant) && p.road_access[i] {
+        if matches!(u, LandUse::Wild | LandUse::Farm | LandUse::Vacant)
+            && p.road_access[i]
+            && !crate::government::on_street_plan(w, i)
+        {
             let urban_nb = dims.ring(i, 1).iter().filter(|&&j| p.land_use[j].is_building()).count();
             if urban_nb >= 3 {
                 m.idle_urban_lots += 1;

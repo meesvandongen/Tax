@@ -38,17 +38,30 @@ pub fn progress(w: &mut World) {
     }
 }
 
-/// Clear a parcel for construction: tenants evicted, firm closed.
-pub fn clear_site(w: &mut World, i: usize) {
+/// Clear a parcel for construction: tenants are paid their relocation
+/// allowance (households) or lease buy-out (firm owner) and leave.
+/// Returns the compensation, which the caller charges to the owner.
+pub fn clear_site(w: &mut World, i: usize) -> f64 {
+    let months = w.econ.relocation_months as f64;
+    let mut paid = 0.0;
     if w.p.land_use[i] == LandUse::Residential && w.p.occupied[i] > 0 {
         let tenants: Vec<u32> =
             w.hh.iter().enumerate().filter(|(_, h)| h.alive && h.home == i as u32).map(|(id, _)| id as u32).collect();
         for id in tenants {
+            let h = &mut w.hh[id as usize];
+            let allowance = months * h.rent as f64;
+            h.cash += allowance;
+            h.income_transfer += allowance as f32;
+            paid += allowance;
             evict(w, id);
         }
     }
     if w.p.firm[i] != NONE {
+        let buyout = econ::tenant_compensation(w, i);
         let f = w.p.firm[i];
+        let firm_owner = w.firms[f as usize].owner;
+        w.pay_owner(firm_owner, buyout);
+        paid += buyout;
         w.close_firm(f);
     }
     if w.p.land_use[i].is_building() {
@@ -57,10 +70,16 @@ pub fn clear_site(w: &mut World, i: usize) {
     }
     w.p.occupied[i] = 0;
     w.p.units[i] = 0;
+    paid
 }
 
 pub fn start_construction(w: &mut World, i: usize, d: &DevOption) {
-    clear_site(w, i);
+    let compensation = clear_site(w, i);
+    match w.p.owner[i] {
+        Owner::Hh(id) => w.hh[id as usize].cash -= compensation,
+        Owner::Gov => w.gov.cash -= compensation,
+        Owner::Absentee => w.flows.absentee_income -= compensation,
+    }
     let months = w.econ.construction_months as u32 + d.floors as u32 / 4;
     w.p.land_use[i] = LandUse::Construction;
     w.p.target_use[i] = d.land_use;
@@ -189,8 +208,9 @@ pub fn run(w: &mut World) {
                 let ok = match owner {
                     Owner::Hh(id) => {
                         let ltv = e.loan_to_value as f64;
+                        let compensation = econ::tenant_compensation(w, i);
                         let h = &mut w.hh[id as usize];
-                        if h.cash >= d.cost * (1.0 - ltv) {
+                        if h.cash >= d.cost * (1.0 - ltv) + compensation {
                             h.cash -= d.cost * (1.0 - ltv);
                             w.p.mortgage[i] += (d.cost * ltv) as f32;
                             true

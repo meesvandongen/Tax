@@ -387,7 +387,7 @@ pub fn check(w: &World) -> Vec<String> {
         v.push(format!("{dead_firms} firms owned by households that left"));
     }
     let on_streets =
-        (0..w.p.len()).filter(|&i| w.p.land_use[i].is_private_use() && crate::government::on_street_grid(w, i)).count();
+        (0..w.p.len()).filter(|&i| w.p.land_use[i].is_private_use() && crate::government::on_street_plan(w, i)).count();
     if on_streets > 0 {
         v.push(format!("{on_streets} buildings block planned streets"));
     }

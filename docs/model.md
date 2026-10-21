@@ -108,7 +108,15 @@ commercial or industrial; floors go up to 40, or 3 for industry, subject to the 
   construction nearby, so developers see competing cranes;
 * **business space:** priced at the firm's **bid-rent** for premises of that size. That is revenue per worker at
   that scale, minus labour cost and a margin. Shops share local spending (Huff); factories have decreasing
-  average product.
+  average product. Factories are priced *through the cycle*: at the export price expected over a ten-year
+  occupancy, not today's boom or slump price;
+* **clearing the site:** demolition, plus compensation for sitting tenants: a relocation allowance of
+  `relocation_months` (6) of rent per household, and twice that per leased job slot as a lease buy-out for a firm.
+  The owner pays it to the tenants when construction starts.
+
+An existing building is valued as it stands. Let business premises are worth at least the lease the sitting
+tenant pays, as an appraiser would value them, not only what a newcomer would bid in today's labour market.
+Without that, a fully let factory looked worthless whenever labour was tight and was torn down.
 
 * **expected occupancy for business space:** the lower of what the labour market can staff, local business
   occupancy and city-wide business occupancy, minus absorption, so empty premises deter new ones.
@@ -198,10 +206,16 @@ includes the point (condition 0.12) below which nobody new will rent a dwelling.
 * **Services:** staff civic buildings, and build a new one when the budget could staff more than the existing
   and planned buildings hold, residents need more staff, and it can be paid for within the debt limit. Coverage
   adds value to nearby locations.
-* **Roads:** extend the street grid where it unlocks the most rent potential, but only while serviced idle land
+* **Roads:** extend the block grid where it unlocks the most rent potential, but only while serviced idle land
   that is worth building on is scarce relative to construction activity.
-* **Parks:** buy land at market price where many residents lack park access.
-* Road and park funds accumulate, capped at three years of allocations.
+  * The grid is a **mapped street plan** (an official map, like Manhattan's 1811 grid): every fifth row and
+    column through the founding crossing. Owners may farm land on it but not build there, and it is exempt from
+    property taxes until the road comes. The government then buys it at its assessed (as-if-unreserved) value.
+  * A building in the way, one that predates the plan, can be **expropriated** with full compensation: market
+    value, demolition and the tenants' relocation payments. That makes it much more expensive than open land,
+    so the planner chooses it only when nothing cheaper unlocks as much land.
+* **Parks:** buy land at market price where many residents lack park access (never on the street plan).
+* Road and park funds accumulate; what is left after the month's works is capped at three years of allocations.
 * **Dividend:** equal per household. **Welfare:** a top-up with 50% withdrawal, extra for the unhoused, at the
   highest level the welfare budget can pay for.
 * **Surplus rebate:** reserves above 12 months of revenue that no programme can absorb are returned equally
@@ -275,14 +289,14 @@ export demand) are the fixes.
 
 These are 6 seeds × 40 years, from `taxsim compare` (mean ± standard error; see the README). Differences
 smaller than a couple of standard errors are noise. All presets also pass every audit check over 300 years
-(seed 1), and the Georgist preset for 500 years; cities settle at roughly 19 000–37 000 households.
+(seed 1), and the Georgist preset for 500 years; cities settle at roughly 23 000–37 000 households.
 
 * **Georgist** (6% land value tax, dividend):
-  * the largest city (≈ 9 200 households vs ≈ 6 800 under the status quo) with the highest output, slightly lower
+  * the largest city (≈ 8 900 households vs ≈ 6 800 under the status quo) with the highest output, slightly lower
     rents and a larger footprint;
-  * more land owned by residents (absentee share ≈ 76% vs ≈ 100%) and much higher average resident welfare;
+  * more land owned by residents (absentee share ≈ 77% vs ≈ 100%) and much higher average resident welfare;
   * but modest revenue: land rent is small where land is plentiful and buildings are priced near construction
-    cost, so a 6% land tax raises about half the status quo's revenue;
+    cost, so a 6% land tax raises well under half the status quo's revenue;
   * and much higher wealth inequality (no income or wealth taxes).
 * **Wealth tax** (2% above 1M): lower wealth inequality than the status quo and more departures of wealthy
   households. City size is within noise.
@@ -299,6 +313,10 @@ smaller than a couple of standard errors are noise. All presets also pass every 
 * **Public goods matter a lot.** Service coverage adds up to 380/month of location value, and roads gate
   development. Low-revenue regimes therefore grow less. This is the Henry George mechanism, but its strength is
   a parameter (`fields.rs`: `SERVICE_VALUE`, `PARK_VALUE`, `POLLUTION_COST`).
+* **Factories outbid homes without zoning.** A floor holds 14 factory jobs but only 4 dwellings, so per floor
+  industry can pay more rent than housing. Real industrial rents per m² are well below residential ones. With
+  zoning off, homes near industry are still rebuilt as factories, often when they are only 10–20 years old.
+  Real cities mostly prevent this with use zoning. In test runs, turning zoning on cut rebuilds by 2–10×.
 * **Stochastic and path-dependent.** Housing cycles emerge from construction lags, and terrain matters. Use many
   seeds.
 * **City size** is set by congestion and the outside demand for exports (`congestion_scale`,

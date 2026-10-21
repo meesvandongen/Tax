@@ -129,14 +129,16 @@ pub fn budget(w: &mut World) {
         build_civic(w);
     }
 
-    // Infrastructure and parks are funded from accumulating funds, which
-    // are capped at a few years of allocations: money no project needs
-    // stays in the reserves (and is eventually rebated).
-    w.gov.infra_budget = (w.gov.infra_budget + share(s.infrastructure)).min(36.0 * share(s.infrastructure));
-    w.gov.park_budget = (w.gov.park_budget + share(s.parks)).min(36.0 * share(s.parks));
+    // Infrastructure and parks are funded from accumulating funds. What the
+    // month's works leave unspent is capped at a few years of allocations:
+    // money no project needs stays in the reserves (and is eventually rebated).
+    w.gov.infra_budget += share(s.infrastructure);
+    w.gov.park_budget += share(s.parks);
     build_roads(w);
     maintain_roads(w);
     build_park(w);
+    w.gov.infra_budget = w.gov.infra_budget.min(36.0 * share(s.infrastructure));
+    w.gov.park_budget = w.gov.park_budget.min(36.0 * share(s.parks));
 }
 
 fn maintain_roads(w: &mut World) {
@@ -151,15 +153,48 @@ fn maintain_roads(w: &mut World) {
 
 const ROAD_COST: f64 = 40_000.0;
 const BRIDGE_COST: f64 = 400_000.0;
+const BLOCK: usize = 5;
+
+/// The mapped street plan: every fifth row and column through the founding
+/// crossing. Like an official map (or Manhattan's 1811 grid), it reserves
+/// the right of way ahead of the road: owners may farm it, but not build on
+/// it, so the network can always be extended. The government buys the strip
+/// when it lays the road.
+pub fn on_street_plan(w: &World, i: usize) -> bool {
+    let (x, y) = w.dims.xy(i);
+    let (cx, cy) = w.dims.xy(w.center);
+    (x + BLOCK - cx % BLOCK) % BLOCK == 0 || (y + BLOCK - cy % BLOCK) % BLOCK == 0
+}
+
+/// Right of way held back for a future road (not yet built on).
+pub fn reserved_for_street(w: &World, i: usize) -> bool {
+    matches!(w.p.land_use[i], LandUse::Wild | LandUse::Farm | LandUse::Vacant) && on_street_plan(w, i)
+}
+
+/// Land acquisition for a road cell, before the road itself. A building in
+/// the way (one that predates the plan) can be expropriated, but only with
+/// full compensation: the property at market value, demolition, and
+/// relocation payments to its tenants. That makes it a last resort.
+fn acquisition_cost(w: &World, i: usize) -> f64 {
+    let u = w.p.land_use[i];
+    if u == LandUse::Water {
+        return 0.0;
+    }
+    let mut cost = w.parcel_value(i);
+    if u.is_building() {
+        cost += econ::demolition_cost(w, i) + econ::tenant_compensation(w, i);
+    }
+    cost
+}
 
 fn build_roads(w: &mut World) {
     let ix = w.index as f64;
     if w.gov.infra_budget < ROAD_COST * ix {
         return;
     }
-    // Plan land supply: extend the network only while serviced, idle land
-    // is short of about two years of construction.
-    // (Only land a developer could build on at a profit counts.)
+    // Plan land supply: extend the network only while serviced land that a
+    // developer could build on at a profit is short of about two years of
+    // construction.
     let inv = w.absentee_investor();
     let serviced_idle = (0..w.p.len())
         .filter(|&i| {
@@ -172,14 +207,16 @@ fn build_roads(w: &mut World) {
         return;
     }
     let dims = w.dims;
-    // Frontier: buildable cells on the street grid next to an existing road.
+    // Frontier: cells on the street plan next to an existing road.
     let mut frontier: Vec<(usize, f64)> = Vec::new();
     for i in 0..dims.len() {
         let u = w.p.land_use[i];
-        if !matches!(u, LandUse::Wild | LandUse::Farm | LandUse::Vacant | LandUse::Water) {
+        let open = matches!(u, LandUse::Wild | LandUse::Farm | LandUse::Vacant | LandUse::Water);
+        let expropriable = matches!(u, LandUse::Residential | LandUse::Commercial | LandUse::Industrial);
+        if !(open || expropriable) || !on_street_plan(w, i) {
             continue;
         }
-        if !on_street_grid(w, i) || !dims.neighbors4(i).any(|j| w.p.land_use[j] == LandUse::Road) {
+        if !dims.neighbors4(i).any(|j| w.p.land_use[j] == LandUse::Road) {
             continue;
         }
         // Demand: the rent potential of land the road would open up.
@@ -191,44 +228,45 @@ fn build_roads(w: &mut World) {
         if unlock <= 0.0 {
             continue;
         }
-        let cost = if u == LandUse::Water { BRIDGE_COST * ix } else { ROAD_COST * ix + w.p.assessed_land[i] as f64 };
-        frontier.push((i, unlock / cost));
+        let build = if u == LandUse::Water { BRIDGE_COST * ix } else { ROAD_COST * ix };
+        frontier.push((i, unlock / (build + acquisition_cost(w, i))));
     }
     frontier.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
     for (i, _) in frontier.into_iter().take(6) {
         let water = w.p.land_use[i] == LandUse::Water;
-        let cost = if water { BRIDGE_COST * ix } else { ROAD_COST * ix };
-        if w.gov.infra_budget < cost {
-            break;
+        let build = if water { BRIDGE_COST * ix } else { ROAD_COST * ix };
+        if w.gov.infra_budget < build + acquisition_cost(w, i) {
+            continue;
         }
         if !water {
             let paid = compulsory_purchase(w, i);
             w.gov.infra_budget -= paid;
+            if w.p.land_use[i].is_building() {
+                // The government now owns the building: it pays its
+                // tenants' relocation and the demolition.
+                let relocation = crate::development::clear_site(w, i);
+                let demolition = econ::demolition_cost(w, i);
+                w.gov.cash -= relocation + demolition;
+                w.gov.infra_budget -= relocation + demolition;
+                w.gov.spend_compensation += relocation;
+                w.gov.spend_infrastructure += demolition;
+                w.flows.construction_spend += demolition;
+                w.gov.roads_expropriated += 1;
+            }
         }
-        w.gov.infra_budget -= cost;
-        w.gov.cash -= cost;
-        w.gov.spend_infrastructure += cost;
-        w.flows.construction_spend += cost;
+        w.gov.infra_budget -= build;
+        w.gov.cash -= build;
+        w.gov.spend_infrastructure += build;
+        w.flows.construction_spend += build;
         set_road(w, i);
         w.gov.roads_built += 1;
         w.push_event(Event::Road { cell: i as u32 });
     }
 }
 
-/// Spacing of the street grid (cells). Blocks are `STREET_BLOCK - 1` cells
-/// wide, so every cell of a block lies within `ACCESS_REACH` of a street.
-pub const STREET_BLOCK: usize = 5;
+/// A street serves the lots up to this many cells away along it. Blocks
+/// are `BLOCK - 1` cells wide, so every cell of a block has access.
 pub const ACCESS_REACH: usize = 2;
-
-/// Whether `i` lies on a planned street line. These cells are the public
-/// right-of-way: nothing private is built on them, so the network can
-/// always be extended along them.
-pub fn on_street_grid(w: &World, i: usize) -> bool {
-    let (cx, cy) = w.dims.xy(w.center);
-    let (x, y) = w.dims.xy(i);
-    let b = STREET_BLOCK;
-    (x + b - cx % b) % b == 0 || (y + b - cy % b) % b == 0
-}
 
 /// Cells a street at `i` serves: up to `ACCESS_REACH` cells along each axis
 /// (lots fronting the street, including block interiors).
@@ -257,6 +295,7 @@ pub fn set_road(w: &mut World, i: usize) {
     w.p.owner[i] = Owner::Gov;
     w.p.nature[i] = 0.0;
     w.p.units[i] = 0;
+    w.p.floors[i] = 0;
     w.p.road_access[i] = true;
     for j in access_cells(w.dims, i) {
         w.p.road_access[j] = true;
@@ -271,7 +310,7 @@ fn build_park(w: &mut World) {
     let mut best: Option<(usize, f64)> = None;
     for i in 0..n {
         let u = w.p.land_use[i];
-        if !matches!(u, LandUse::Wild | LandUse::Farm | LandUse::Vacant) || !w.p.road_access[i] || on_street_grid(w, i)
+        if !matches!(u, LandUse::Wild | LandUse::Farm | LandUse::Vacant) || !w.p.road_access[i] || on_street_plan(w, i)
         {
             continue;
         }
@@ -303,7 +342,7 @@ fn build_civic(w: &mut World) {
     let mut best: Option<(usize, f32)> = None;
     for i in 0..n {
         let u = w.p.land_use[i];
-        if !matches!(u, LandUse::Wild | LandUse::Farm | LandUse::Vacant) || !w.p.road_access[i] || on_street_grid(w, i)
+        if !matches!(u, LandUse::Wild | LandUse::Farm | LandUse::Vacant) || !w.p.road_access[i] || on_street_plan(w, i)
         {
             continue;
         }

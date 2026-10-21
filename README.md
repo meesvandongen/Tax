@@ -34,6 +34,17 @@ npm run dev        # builds the wasm module and starts Vite on http://localhost:
 
 `npm run build` produces a static site in `web/dist/` that runs on any static host (no special headers needed).
 
+### Deploying to Cloudflare Workers
+
+`wrangler.jsonc` defines a static-assets-only Worker that serves `web/dist`. With Workers Builds (Git integration),
+use the repository root as the root directory and:
+
+* **Build command:** `bash scripts/build-web.sh`. It installs a minimal Rust toolchain if the build image
+  has none, then runs `npm ci && npm run build` in `web/`.
+* **Deploy command:** `npx wrangler deploy`
+
+Locally: `bash scripts/build-web.sh && npx wrangler deploy`.
+
 ### Headless experiments
 
 The same simulation core compiles natively, for fast batch experiments:

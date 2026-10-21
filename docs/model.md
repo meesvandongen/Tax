@@ -297,7 +297,8 @@ includes the point (condition 0.12) below which nobody new will rent a dwelling.
   market income, and welfare never pays out more than its budget;
 * no household holds absurd cash, and land prices stay finite and do not swing more than threefold within five
   years (after the founding period);
-* bookkeeping: no parcel or firm belongs to a household that has left, and no building blocks a planned street.
+* bookkeeping: no parcel or firm belongs to a household that has left, every firm's head count and skill total
+  match the households it employs, and no building blocks a planned street.
 
 The citywide land price index can stay calm while individual parcels boom and bust. So the test suite also
 follows every taxable parcel's assessment for 50 years in a mature Georgist city: 90% of valuable parcels must
@@ -309,24 +310,25 @@ An earlier version failed these badly on long runs. Outside owners paid any tax 
 from fictional bid-rents, shops could sell any amount per worker, and the road network froze. A 500-year Georgist
 run ended with 26 households, empty commercial towers and tax revenue growing without bound. The mechanisms above
 (tax default, as-if-vacant assessment, shop capacity, observed business rents, street right-of-way, congestion and
-export demand) are the fixes.
+export demand) are the fixes. A bookkeeping bug did similar damage more quietly: when a worker died, their
+employer's skill total lost the heir's skill instead of theirs, so factories built up phantom skill (1.9× their
+real staff by year 200). Export income per worker grew fourfold, wages fell and the surplus went to owners.
 
 ## What the model currently says, and how much to trust it
 
 These are 6 seeds × 40 years, from `taxsim compare` (mean ± standard error; see the README). Differences
 smaller than a couple of standard errors are noise. All presets also pass every audit check over 300 years
-(seed 1), and the Georgist preset for 500 years; cities settle at roughly 23 000–39 000 households.
+(seed 1), and the Georgist preset for 500 years; cities settle at roughly 26 000–40 000 households.
 
 * **Georgist** (6% land value tax, dividend):
-  * a larger city than the status quo (≈ 9 600 vs ≈ 8 600 households, under two standard errors, so only
-    suggestive), higher output,
-    slightly lower rents and taller buildings;
-  * more land owned by residents (absentee share ≈ 71% vs ≈ 100%) and much higher average resident welfare;
+  * a larger city than the status quo (≈ 9 600 vs ≈ 8 000 households, about two standard errors), higher
+    output, slightly lower rents and taller buildings;
+  * more land owned by residents (absentee share ≈ 72% vs ≈ 100%) and much higher average resident welfare;
   * but modest revenue: land rent is small where land is plentiful and buildings are priced near construction
     cost, so a 6% land tax raises about a third of the status quo's revenue;
   * and much higher wealth inequality (no income or wealth taxes).
-* **Wealth tax** (2% above 1M): lower wealth inequality than the status quo. City size and departures of
-  wealthy households are within noise.
+* **Wealth tax** (2% above 1M): lower wealth inequality than the status quo and more departures of wealthy
+  households. City size is within noise.
 * **Nordic** (high income tax and VAT): the lowest inequality, the highest revenue and the most deterred workers.
   In this run it is also one of the largest cities.
 * **Harberger at 4% of total value:** the smallest city, with almost no building above one floor: the

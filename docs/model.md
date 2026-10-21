@@ -315,18 +315,20 @@ export demand) are the fixes.
 
 These are 6 seeds × 40 years, from `taxsim compare` (mean ± standard error; see the README). Differences
 smaller than a couple of standard errors are noise. All presets also pass every audit check over 300 years
-(seed 1), and the Georgist preset for 500 years; cities settle at roughly 23 000–37 000 households.
+(seed 1), and the Georgist preset for 500 years; cities settle at roughly 23 000–39 000 households.
 
 * **Georgist** (6% land value tax, dividend):
-  * the largest city (≈ 8 900 households vs ≈ 6 800 under the status quo) with the highest output, slightly lower
-    rents and a larger footprint;
-  * more land owned by residents (absentee share ≈ 77% vs ≈ 100%) and much higher average resident welfare;
+  * a larger city than the status quo (≈ 9 600 vs ≈ 8 600 households, under two standard errors, so only
+    suggestive), higher output,
+    slightly lower rents and taller buildings;
+  * more land owned by residents (absentee share ≈ 71% vs ≈ 100%) and much higher average resident welfare;
   * but modest revenue: land rent is small where land is plentiful and buildings are priced near construction
-    cost, so a 6% land tax raises well under half the status quo's revenue;
+    cost, so a 6% land tax raises about a third of the status quo's revenue;
   * and much higher wealth inequality (no income or wealth taxes).
-* **Wealth tax** (2% above 1M): lower wealth inequality than the status quo and more departures of wealthy
-  households. City size is within noise.
+* **Wealth tax** (2% above 1M): lower wealth inequality than the status quo. City size and departures of
+  wealthy households are within noise.
 * **Nordic** (high income tax and VAT): the lowest inequality, the highest revenue and the most deterred workers.
+  In this run it is also one of the largest cities.
 * **Harberger at 4% of total value:** the smallest city, with almost no building above one floor: the
   self-assessed tax falls on buildings too, so waiting beats building. A mechanism-level warning about COST rates,
   not a calibrated forecast.

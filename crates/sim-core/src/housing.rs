@@ -43,6 +43,7 @@ pub fn evict(w: &mut World, id: u32) {
 pub fn adjust_rents(w: &mut World) {
     let adj = w.cfg.econ.rent_adjust;
     let pressure = w.housing_pressure();
+    let drift = w.cfg.econ.outside_growth / 12.0;
     for i in 0..w.p.len() {
         if w.p.land_use[i] != LandUse::Residential || w.p.units[i] == 0 {
             continue;
@@ -51,15 +52,14 @@ pub fn adjust_rents(w: &mut World) {
         let vac = (units - w.p.occupied[i] as f32) / units;
         let r = &mut w.p.asking_rent[i];
         if vac <= 0.0 {
-            *r *= 1.0 + adj * (0.4 + 4.0 * pressure);
+            // Full buildings only push rents up when people are queueing.
+            *r *= 1.0 + drift + adj * 3.0 * pressure;
             w.p.months_vacant[i] = 0;
         } else if vac > 0.05 {
             *r *= 1.0 - adj * (vac * 2.0).min(1.0);
             w.p.months_vacant[i] = w.p.months_vacant[i].saturating_add(1);
         }
-        // Derelict buildings can't command full rent.
-        let cap = w.f.rent_res[i] * (0.5 + 0.7 * w.p.condition[i]) * 1.6;
-        *r = r.clamp(40.0, cap.max(80.0));
+        *r = r.max(40.0);
     }
     // Lease renewals: roughly yearly.
     let tick = w.tick;
@@ -71,13 +71,16 @@ pub fn adjust_rents(w: &mut World) {
 }
 
 /// Utility (money per month) of living at `cell` paying `rent`.
+/// Monthly money-equivalent cost of living in a run-down building.
+pub const DISREPAIR_COST: f32 = 450.0;
+
 fn location_utility(w: &World, h: &Household, cell: usize, rent: f32) -> f32 {
     let commute = if h.job != NONE {
         commute_cost(w, cell, w.firms[h.job as usize].parcel as usize)
     } else {
         w.cfg.econ.commute_cost_per_cell * w.f.commute_eff[cell]
     };
-    residential_quality(w, cell) - commute - rent
+    residential_quality(w, cell) - commute - rent - DISREPAIR_COST * (1.0 - w.p.condition[cell])
 }
 
 /// Monthly income a household can count on (for affordability).

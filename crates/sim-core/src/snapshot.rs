@@ -70,7 +70,11 @@ impl Snapshot {
             let occ = if p.units[i] > 0 {
                 (p.occupied[i] as f32 / p.units[i] as f32 * 255.0) as u8
             } else if u == LandUse::Commercial || u == LandUse::Industrial {
-                if p.firm[i] != NONE { 255 } else { 0 }
+                if p.firm[i] != NONE {
+                    255
+                } else {
+                    0
+                }
             } else {
                 0
             };
@@ -135,12 +139,11 @@ impl Snapshot {
 
         // Commuters: a deterministic stride sample of employed, housed households.
         self.commuters.clear();
-        let employed: Vec<(u32, u32)> = w
-            .hh
-            .iter()
-            .filter(|h| h.alive && h.home != NONE && h.job != NONE)
-            .map(|h| (h.home, w.firms[h.job as usize].parcel))
-            .collect();
+        let employed: Vec<(u32, u32)> =
+            w.hh.iter()
+                .filter(|h| h.alive && h.home != NONE && h.job != NONE)
+                .map(|h| (h.home, w.firms[h.job as usize].parcel))
+                .collect();
         let stride = (employed.len() / max_commuters.max(1)).max(1);
         for (home, job) in employed.iter().step_by(stride).take(max_commuters) {
             self.commuters.push(*home);

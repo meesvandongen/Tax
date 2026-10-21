@@ -36,7 +36,8 @@ export function renderInspector(root: HTMLElement, d: any) {
   html += row('Taxes last month', money(d.tax_last_month));
   if (d.mortgage > 0) html += row('Mortgage', money(d.mortgage));
   if (d.months_held_idle > 0) html += row('Held idle', `${d.months_held_idle} months`, 'Owner judged waiting more profitable than building');
-  html += row('Last sale', d.months_since_sale > 1e6 ? 'never' : `${d.months_since_sale} months ago at ${money(d.last_price)}`);
+  if (d.owner.kind !== 'government' || d.last_price > 0)
+    html += row('Market value', money(d.last_price), d.months_since_sale < 24 ? `sold ${d.months_since_sale} months ago` : 'assessment (no recent sale)');
   if (d.best_development) {
     const b = d.best_development;
     html += row('Best option', `${b.use} × ${b.floors} floors (residual ${money(b.residual)})`, "Owner's most profitable redevelopment");

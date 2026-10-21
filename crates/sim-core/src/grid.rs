@@ -133,10 +133,7 @@ pub fn smoothed_mean(values: &[f32], weights: &[f32], dims: Dims, lambda: f32, f
     let mut den = weights.to_vec();
     exp_blur_in_place(&mut num, dims, lambda);
     exp_blur_in_place(&mut den, dims, lambda);
-    num.iter()
-        .zip(&den)
-        .map(|(n, d)| if *d > 1e-3 { n / d } else { fallback })
-        .collect()
+    num.iter().zip(&den).map(|(n, d)| if *d > 1e-3 { n / d } else { fallback }).collect()
 }
 
 #[cfg(test)]

@@ -12,6 +12,8 @@
 //! * markets: [`labour`], [`housing`], [`land`], [`production`]
 //! * [`government`], [`migration`], [`environment`], [`metrics`], [`snapshot`]
 
+#![allow(clippy::needless_range_loop, clippy::unnecessary_map_or, clippy::manual_is_multiple_of)]
+
 pub mod clock;
 pub mod config;
 pub mod development;
@@ -23,8 +25,8 @@ pub mod genesis;
 pub mod government;
 pub mod grid;
 pub mod households;
-pub mod inspect;
 pub mod housing;
+pub mod inspect;
 pub mod labour;
 pub mod land;
 pub mod metrics;

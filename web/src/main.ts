@@ -107,6 +107,7 @@ function startBaseline(name: string) {
   baseline?.terminate();
   baseline = null;
   baselineName = name;
+  charts.setCompare(!!name);
   if (!name || !ready) {
     charts.markDirty();
     return;

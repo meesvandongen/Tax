@@ -211,7 +211,7 @@ pub fn found_settlement(w: &mut World) {
     let mut job_slots: Vec<u32> = Vec::new();
     for (fid, f) in w.firms.iter().enumerate() {
         let take = (w.p.units[f.parcel as usize] as f32 * 0.9) as usize;
-        job_slots.extend(std::iter::repeat(fid as u32).take(take));
+        job_slots.extend(std::iter::repeat_n(fid as u32, take));
     }
     w.rng.shuffle(&mut job_slots);
     for id in 0..w.hh.len() as u32 {

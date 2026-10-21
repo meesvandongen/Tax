@@ -170,17 +170,11 @@ function smooth(v: number[], win: number): number[] {
 export class Charts {
   private plots: { def: ChartDef; plot: uPlot; el: HTMLElement }[] = [];
   private dirty = true;
+  private compare = false;
   smoothing = 6;
 
   constructor(private root: HTMLElement, private getMain: () => Metrics[], private getBase: () => Metrics[] | null) {
-    for (const def of CHARTS) {
-      const el = document.createElement('div');
-      el.className = 'chart';
-      el.innerHTML = `<div class="chart-title" title="${def.help}">${def.title}</div>`;
-      root.appendChild(el);
-      const plot = new uPlot(this.opts(def, 300), [[]], el);
-      this.plots.push({ def, plot, el });
-    }
+    this.build();
     new ResizeObserver(() => this.resize()).observe(root);
     const tick = () => {
       if (this.dirty) this.redraw();
@@ -189,18 +183,47 @@ export class Charts {
     requestAnimationFrame(tick);
   }
 
+  private build() {
+    for (const p of this.plots) {
+      p.plot.destroy();
+      p.el.remove();
+    }
+    this.plots = [];
+    const width = Math.max(200, this.root.clientWidth - 16);
+    for (const def of CHARTS) {
+      const el = document.createElement('div');
+      el.className = 'chart';
+      el.innerHTML = `<div class="chart-title" title="${def.help}">${def.title}${
+        this.compare ? ' <span class="muted">— dashed: baseline</span>' : ''
+      }</div>`;
+      this.root.appendChild(el);
+      const plot = new uPlot(this.opts(def, width), [[]], el);
+      this.plots.push({ def, plot, el });
+    }
+    this.dirty = true;
+  }
+
+  /** Show or hide the dashed baseline series. */
+  setCompare(on: boolean) {
+    if (on === this.compare) return;
+    this.compare = on;
+    this.build();
+  }
+
   private opts(def: ChartDef, width: number): uPlot.Options {
     const series: uPlot.Series[] = [{ label: 'year', value: (_u, v) => (v == null ? '' : v.toFixed(1)) }];
     for (const s of def.series) {
       series.push({ label: s.label, stroke: s.color, width: 1.6, value: (_u, v) => (v == null ? '–' : (def.fmt ?? String)(v)) });
     }
-    for (const s of def.series) {
-      series.push({ label: `${s.label} (baseline)`, stroke: s.color, width: 1, dash: [4, 4], show: true, value: (_u, v) => (v == null ? '–' : (def.fmt ?? String)(v)) });
+    if (this.compare) {
+      for (const s of def.series) {
+        series.push({ label: `${s.label} (baseline)`, stroke: s.color, width: 1, dash: [4, 4], value: (_u, v) => (v == null ? '–' : (def.fmt ?? String)(v)) });
+      }
     }
     return {
       width,
-      height: 150,
-      legend: { live: true },
+      height: 140,
+      legend: { live: false },
       cursor: { drag: { x: false, y: false } },
       scales: { x: { time: false } },
       axes: [
@@ -217,7 +240,7 @@ export class Charts {
 
   private resize() {
     const width = this.root.clientWidth - 16;
-    for (const p of this.plots) p.plot.setSize({ width, height: 150 });
+    for (const p of this.plots) p.plot.setSize({ width, height: 140 });
   }
 
   private redraw() {
@@ -233,13 +256,15 @@ export class Charts {
         const v = smooth(main.map(s.value), this.smoothing);
         data.push(xs.map((_, i) => (i < v.length ? v[i] : null)));
       }
-      for (const s of def.series) {
-        if (!base) {
-          data.push(xs.map(() => null));
-          continue;
+      if (this.compare) {
+        for (const s of def.series) {
+          if (!base) {
+            data.push(xs.map(() => null));
+            continue;
+          }
+          const v = smooth(base.map(s.value), this.smoothing);
+          data.push(xs.map((_, i) => (i < v.length ? v[i] : null)));
         }
-        const v = smooth(base.map(s.value), this.smoothing);
-        data.push(xs.map((_, i) => (i < v.length ? v[i] : null)));
       }
       plot.setData(data as uPlot.AlignedData);
     }

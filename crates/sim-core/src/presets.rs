@@ -71,7 +71,7 @@ pub fn preset(name: &str) -> Option<Policy> {
             p
         }
         "harberger" => Policy {
-            taxes: vec![TaxSpec::Harberger { rate: 0.07 }],
+            taxes: vec![TaxSpec::Harberger { rate: 0.04 }],
             spending: spend(0.32, 0.3, 0.08, 0.25, 0.05),
             zoning: false,
             height_limit: 0,

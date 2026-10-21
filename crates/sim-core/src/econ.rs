@@ -2,17 +2,23 @@
 //! market. Every owner, buyer and developer values parcels with these
 //! functions, using *their own* discount rate and the *actual* tax schedule.
 //!
-//! Value of an income property (perpetuity with growth), where property-type
-//! taxes are paid on assessed land `L = V − B` and building `B`:
+//! Value of an income property (growing perpetuity of after-tax cash flow):
 //!
 //! ```text
-//!   V (r − g) = 12·NOI·(1 − t_inc) − τ_L·L − τ_B·B − w·V
-//!   ⇒ V = (12·NOI·(1 − t_inc) + (τ_L − τ_B)·B) / (r − g + τ_L + w)
+//!   V (r − g) = 12·NOI·(1 − t_inc) − τ_L·L_a − τ_B·B − (h + w)·V
+//!   ⇒ V = (12·NOI·(1 − t_inc) − τ_L·L_a − τ_B·B) / (r − g + h + w)
 //! ```
 //!
-//! `t_inc` is the owner's tax rate on rental income, `w` their marginal
-//! wealth-tax rate. Land-only taxes therefore capitalise into lower land
-//! prices, while building taxes reduce the payoff of each extra floor.
+//! * `L_a` is the parcel's *assessed* land value. The assessor values land
+//!   by comparables ("as if vacant"), so nothing the owner builds or
+//!   maintains changes it: a land tax is a fixed charge per parcel. It
+//!   still capitalises into lower prices — buyers deduct its present value,
+//!   sales feed the comparables, assessments fall — but through the market
+//!   loop rather than a formula.
+//! * `B` is the building value; building taxes scale with every floor.
+//! * `h` is a Harberger (self-assessed) rate: declared ≈ own value.
+//! * `t_inc` is the owner's tax rate on rental income, `w` their marginal
+//!   wealth-tax rate.
 
 use crate::types::*;
 use crate::world::World;
@@ -178,19 +184,19 @@ pub fn permitted(w: &World, i: usize, u: LandUse, floors: u8) -> bool {
     }
 }
 
-pub fn capitalize(w: &World, inv: &Investor, noi_month: f64, bldg: f64, idle_share: f64) -> f64 {
+pub fn capitalize(w: &World, inv: &Investor, i: usize, noi_month: f64, bldg: f64, idle_share: f64) -> f64 {
     let t = &w.taxes;
-    // Per-unit annual rates on land and building value.
-    let (tau_l, tau_b) = if inv.no_tax {
+    let land = w.p.assessed_land[i] as f64;
+    // Public land in the city is exempt; land outside the boundary is valued
+    // as if annexed, since developing it would bring it into the city.
+    let exempt = inv.no_tax || (w.p.in_city[i] && !crate::property::taxable(w, i));
+    let (fixed_tax, harberger) = if exempt {
         (0.0, 0.0)
     } else {
-        (
-            t.estimate(|m| m.property(1.0, 0.0) + m.vacancy(1.0, idle_share)) + t.harberger_rate(),
-            t.estimate(|m| m.property(0.0, 1.0) + m.vacancy(1.0, idle_share)) + t.harberger_rate(),
-        )
+        (t.estimate(|m| m.property(land, bldg) + m.vacancy(land + bldg, idle_share)), t.harberger_rate())
     };
-    let denom = (inv.r - inv.g + tau_l + inv.w).max(0.01);
-    ((12.0 * noi_month * (1.0 - inv.t_inc) + (tau_l - tau_b) * bldg) / denom).max(0.0)
+    let denom = (inv.r - inv.g + harberger + inv.w).max(0.01);
+    ((12.0 * noi_month * (1.0 - inv.t_inc) - fixed_tax) / denom).max(0.0)
 }
 
 /// Net operating income per month before property taxes and income tax.
@@ -215,21 +221,21 @@ pub fn current_use_value(w: &World, i: usize, inv: &Investor) -> f64 {
             // Rent actually achievable is capped by building condition.
             let quality = 0.6 + 0.4 * p.condition[i] as f64;
             let n = noi(w, i, u, units, occ, bldg) * quality;
-            capitalize(w, inv, n, bldg, 1.0 - occ)
+            capitalize(w, inv, i, n, bldg, 1.0 - occ)
         }
         LandUse::Farm | LandUse::Wild => {
             let farm = w.cfg.econ.farm_rent as f64 * (0.4 + w.terrain.fertility[i] as f64);
             let n = if u == LandUse::Farm { farm } else { farm * 0.5 };
-            capitalize(w, inv, n, 0.0, 0.0)
+            capitalize(w, inv, i, n, 0.0, 0.0)
         }
-        LandUse::Vacant => capitalize(w, inv, 0.0, 0.0, 1.0),
+        LandUse::Vacant => capitalize(w, inv, i, 0.0, 0.0, 1.0),
         LandUse::Construction => {
             // Valued as the finished project.
             let tu = p.target_use[i];
             let units = units_for(w, tu, p.floors[i]);
             let occ = expected_occupancy(w, i, tu, 0);
             let cost = construction_cost(w, i, tu, p.floors[i]);
-            capitalize(w, inv, noi(w, i, tu, units, occ, cost), cost, 1.0 - occ)
+            capitalize(w, inv, i, noi(w, i, tu, units, occ, cost), cost, 1.0 - occ)
         }
         _ => 0.0,
     }
@@ -261,7 +267,7 @@ pub fn best_development(w: &World, i: usize, inv: &Investor) -> Option<DevOption
             if n <= 0.0 {
                 continue;
             }
-            let value = capitalize(w, inv, n, cost, 1.0 - occ);
+            let value = capitalize(w, inv, i, n, cost, 1.0 - occ);
             let residual = value - cost - demolition;
             if best.map_or(true, |b| residual > b.residual) {
                 best = Some(DevOption { land_use: u, floors, units, cost, value, residual });

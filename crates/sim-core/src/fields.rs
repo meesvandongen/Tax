@@ -32,10 +32,8 @@ pub struct Fields {
     pub amenity: Vec<f32>,
     /// Public-service quality 0..1.
     pub service: Vec<f32>,
-    /// Location premium per use, money per unit per month.
+    /// Residential location premium, money per dwelling per month.
     pub loc_res: Vec<f32>,
-    pub loc_com: Vec<f32>,
-    pub loc_ind: Vec<f32>,
     /// Estimated market rent per unit per month for each use.
     pub rent_res: Vec<f32>,
     pub rent_com: Vec<f32>,
@@ -52,10 +50,8 @@ pub struct Fields {
     pub pipeline_res: Vec<f32>,
     pub pipeline_com: Vec<f32>,
     pub pipeline_ind: Vec<f32>,
-    /// Global level terms (city averages) used as fallbacks.
+    /// City-wide rent level (rent minus location premium), the fallback.
     pub level_res: f32,
-    pub level_com: f32,
-    pub level_ind: f32,
 }
 
 impl Fields {
@@ -75,8 +71,6 @@ impl Fields {
             amenity: z(),
             service: z(),
             loc_res: z(),
-            loc_com: z(),
-            loc_ind: z(),
             rent_res: z(),
             rent_com: z(),
             rent_ind: z(),
@@ -90,8 +84,6 @@ impl Fields {
             pipeline_com: z(),
             pipeline_ind: z(),
             level_res: 700.0,
-            level_com: -2600.0,
-            level_ind: -3500.0,
         }
     }
 }
@@ -184,19 +176,13 @@ pub fn update(w: &mut World) {
     let la = e.access_decay_cells;
     let job_access = exp_blur(&jobs, dims, la);
     let total_jobs: f32 = jobs.iter().sum::<f32>().max(1.0);
-    let commute_eff: Vec<f32> = job_access
-        .iter()
-        .map(|&j| (-la * (j / total_jobs).max(1e-9).ln()).clamp(0.0, 4.0 * dims.w as f32))
-        .collect();
+    let commute_eff: Vec<f32> =
+        job_access.iter().map(|&j| (-la * (j / total_jobs).max(1e-9).ln()).clamp(0.0, 4.0 * dims.w as f32)).collect();
 
     // ---- retail: Huff gravity model
     let shop_lambda = SHOP_LAMBDA;
     let s_field = exp_blur(&retail_cap, dims, shop_lambda);
-    let ratio: Vec<f32> = spend
-        .iter()
-        .zip(&s_field)
-        .map(|(c, s)| c / (s + OUTSIDE_SHOP_CAPACITY))
-        .collect();
+    let ratio: Vec<f32> = spend.iter().zip(&s_field).map(|(c, s)| c / (s + OUTSIDE_SHOP_CAPACITY)).collect();
     let retail_draw = exp_blur(&ratio, dims, shop_lambda);
 
     // ---- pollution and amenities
@@ -207,9 +193,7 @@ pub fn update(w: &mut World) {
     let ma = kernel_mass(lam);
     let parks: Vec<f32> = (0..n).map(|i| (p.land_use[i] == LandUse::Park) as u8 as f32).collect();
     let park_frac = exp_blur(&parks, dims, lam);
-    let nature_src: Vec<f32> = (0..n)
-        .map(|i| if p.land_use[i] == LandUse::Park { 0.0 } else { p.nature[i] })
-        .collect();
+    let nature_src: Vec<f32> = (0..n).map(|i| if p.land_use[i] == LandUse::Park { 0.0 } else { p.nature[i] }).collect();
     let nature_frac = exp_blur(&nature_src, dims, lam);
     let pub_access = exp_blur(&public_jobs, dims, 5.0);
     let pop_access = exp_blur(&pop, dims, 5.0);
@@ -218,8 +202,6 @@ pub fn update(w: &mut World) {
     let mut amenity = vec![0f32; n];
     let mut service = vec![0f32; n];
     let mut loc_res = vec![0f32; n];
-    let mut loc_com = vec![0f32; n];
-    let mut loc_ind = vec![0f32; n];
     for i in 0..n {
         let water = (-w.terrain.water_dist[i] / 3.0).exp() * (!w.terrain.water[i]) as u8 as f32;
         amenity[i] = PARK_VALUE * (park_frac[i] / ma * 4.0).min(1.0)
@@ -228,21 +210,12 @@ pub fn update(w: &mut World) {
         service[i] = (pub_access[i] / (pop_access[i].max(1.0) * SERVICE_RATIO)).min(1.0);
         loc_res[i] = -e.commute_cost_per_cell * commute_eff[i] + amenity[i] + SERVICE_VALUE * service[i]
             - POLLUTION_COST * pollution[i];
-        loc_com[i] = retail_draw[i];
-        loc_ind[i] = e.industry_output_per_worker
-            * e.industry_price
-            * w.cycle
-            * e.agglomeration
-            * (1.0 + industry_access[i]).ln();
     }
 
-    // ---- market rent surfaces: hedonic level + location premium
+    // ---- residential rent surface: hedonic level + location premium.
+    // (Business space is priced by firms' bid-rents, see econ::firm_bid_rent.)
     let mut d_res = vec![0f32; n];
     let mut wt_res = vec![0f32; n];
-    let mut d_com = vec![0f32; n];
-    let mut wt_com = vec![0f32; n];
-    let mut d_ind = vec![0f32; n];
-    let mut wt_ind = vec![0f32; n];
     let mut occ_src = [vec![0f32; n], vec![0f32; n], vec![0f32; n]];
     let mut unit_src = [vec![0f32; n], vec![0f32; n], vec![0f32; n]];
     for i in 0..n {
@@ -259,21 +232,10 @@ pub fn update(w: &mut World) {
         };
         occ_src[k][i] = occ;
         unit_src[k][i] = units;
-        // Observations weighted by occupied units: rents that actually clear.
-        let wgt = occ.max(0.25 * units);
-        match k {
-            0 => {
-                d_res[i] = p.asking_rent[i] - loc_res[i];
-                wt_res[i] = wgt;
-            }
-            1 => {
-                d_com[i] = p.asking_rent[i] - loc_com[i];
-                wt_com[i] = wgt;
-            }
-            _ => {
-                d_ind[i] = p.asking_rent[i] - loc_ind[i];
-                wt_ind[i] = wgt;
-            }
+        if k == 0 {
+            // Observations weighted by occupied units: rents that actually clear.
+            d_res[i] = p.asking_rent[i] - loc_res[i];
+            wt_res[i] = occ.max(0.25 * units);
         }
     }
     let global = |d: &[f32], wt: &[f32], prev: f32| {
@@ -286,22 +248,15 @@ pub fn update(w: &mut World) {
     };
     let f = &mut w.f;
     f.level_res = global(&d_res, &wt_res, f.level_res);
-    f.level_com = global(&d_com, &wt_com, f.level_com);
-    f.level_ind = global(&d_ind, &wt_ind, f.level_ind);
     let lr = 6.0;
     let lvl_res = smoothed_mean(&d_res, &wt_res, dims, lr, f.level_res);
-    let lvl_com = smoothed_mean(&d_com, &wt_com, dims, lr, f.level_com);
-    let lvl_ind = smoothed_mean(&d_ind, &wt_ind, dims, lr, f.level_ind);
     // Blend local level with the global one where observations are thin.
     let thin = exp_blur(&wt_res, dims, lr);
-    let thin_c = exp_blur(&wt_com, dims, lr);
-    let thin_i = exp_blur(&wt_ind, dims, lr);
     let lo = 4.0;
     for i in 0..n {
         let a = (thin[i] / (thin[i] + lo)).min(1.0);
         let level = a * lvl_res[i] + (1.0 - a) * f.level_res;
         f.rent_res[i] = (level + loc_res[i]).max(50.0);
-        let _ = (&thin_c, &thin_i, &lvl_com, &lvl_ind);
     }
     let mut pipe = [vec![0f32; n], vec![0f32; n], vec![0f32; n]];
     for i in 0..n {
@@ -348,12 +303,17 @@ pub fn update(w: &mut World) {
     f.amenity = amenity;
     f.service = service;
     f.loc_res = loc_res;
-    f.loc_com = loc_com;
-    f.loc_ind = loc_ind;
     // Bid-rent surfaces for business space at a typical premises size.
+    // (Only where business could locate: serviced land inside the city.)
     for i in 0..n {
-        let rc = crate::econ::firm_bid_rent(w, i, LandUse::Commercial, 18);
-        let ri = crate::econ::firm_bid_rent(w, i, LandUse::Industrial, 28);
+        let (rc, ri) = if w.p.in_city[i] || w.p.road_access[i] {
+            (
+                crate::econ::firm_bid_rent(w, i, LandUse::Commercial, 18),
+                crate::econ::firm_bid_rent(w, i, LandUse::Industrial, 28),
+            )
+        } else {
+            (0.0, 0.0)
+        };
         w.f.rent_com[i] = rc;
         w.f.rent_ind[i] = ri;
     }

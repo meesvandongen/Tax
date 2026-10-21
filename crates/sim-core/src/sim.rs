@@ -106,6 +106,7 @@ fn begin_tick(w: &mut World) {
     g.spend_rebate = 0.0;
     households::begin_month(w);
     w.update_pressure();
+    w.update_wage_cache();
     w.update_labour_slack();
 }
 

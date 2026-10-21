@@ -60,16 +60,10 @@ pub fn new_household(w: &mut World, skill: f32) -> Household {
 
 pub fn immigration(w: &mut World) {
     let e = w.cfg.econ.clone();
-    let vacant_units: u32 = (0..w.p.len())
-        .filter(|&i| w.p.land_use[i] == LandUse::Residential)
-        .map(|i| w.p.vacant_units(i) as u32)
-        .sum();
-    let openings: u32 = w
-        .firms
-        .iter()
-        .filter(|f| f.alive)
-        .map(|f| f.desired_workers.saturating_sub(f.workers) as u32)
-        .sum();
+    let vacant_units: u32 =
+        (0..w.p.len()).filter(|&i| w.p.land_use[i] == LandUse::Residential).map(|i| w.p.vacant_units(i) as u32).sum();
+    let openings: u32 =
+        w.firms.iter().filter(|f| f.alive).map(|f| f.desired_workers.saturating_sub(f.workers) as u32).sum();
     // City conditions as an outsider perceives them.
     let unemployment = w.last_unemployment();
     let wage_rate = w.market_wage_rate();
@@ -83,7 +77,11 @@ pub fn immigration(w: &mut World) {
                 c += w.p.occupied[i] as f32;
             }
         }
-        if c > 0.0 { s / c } else { 0.0 }
+        if c > 0.0 {
+            s / c
+        } else {
+            0.0
+        }
     };
     let commute = e.commute_cost_per_cell * 8.0;
     let div = w.gov.dividend_per_hh as f32;

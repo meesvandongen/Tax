@@ -72,7 +72,10 @@ pub fn firm_decisions(w: &mut World) {
             Sector::Industry => {
                 let mp = industry_marginal_product(w, f) * avg_skill;
                 // Emission tax per worker at the chosen intensity also counts.
-                let em_cost = w.taxes.estimate(|m| m.emission(w.cfg.econ.pollution_per_worker as f64 * f.emission_intensity as f64)) as f32;
+                let em_cost = w
+                    .taxes
+                    .estimate(|m| m.emission(w.cfg.econ.pollution_per_worker as f64 * f.emission_intensity as f64))
+                    as f32;
                 let margin = mp - wage_cost - em_cost;
                 step_toward(workers, margin / wage_cost.max(1.0))
             }
@@ -258,19 +261,19 @@ impl World {
     pub fn last_unemployment(&self) -> f32 {
         self.history.last().map(|m| m.unemployment).unwrap_or(0.05)
     }
-    /// Average private wage per unit skill (used for public pay).
+    /// Average private wage per unit skill, cached once per tick.
     pub fn market_wage_rate(&self) -> f32 {
+        self.wage_cache
+    }
+
+    pub fn update_wage_cache(&mut self) {
         let mut s = 0.0;
         let mut n = 0.0;
         for f in self.firms.iter().filter(|f| f.alive && f.sector != Sector::Public && f.workers > 0) {
             s += f.wage_rate * f.workers as f32;
             n += f.workers as f32;
         }
-        if n > 0.0 {
-            s / n
-        } else {
-            self.cfg.econ.base_wage
-        }
+        self.wage_cache = if n > 0.0 { s / n } else { self.cfg.econ.base_wage };
     }
     pub fn gov_welfare_level(&self) -> f32 {
         self.gov.welfare_level as f32

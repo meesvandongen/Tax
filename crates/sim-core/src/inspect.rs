@@ -43,27 +43,26 @@ pub fn parcel(w: &World, i: usize) -> Value {
     } else {
         Value::Null
     };
-    let residents: Vec<Value> = w
-        .hh
-        .iter()
-        .filter(|h| h.alive && h.home == i as u32)
-        .take(12)
-        .map(|h| {
-            json!({
-                "skill": h.skill,
-                "employed": h.job != NONE,
-                "rent": h.rent,
-                "income": h.income_labor + h.income_capital + h.income_transfer,
-                "taxes": h.taxes_paid,
-                "wealth": h.wealth,
-                "utility": h.utility,
+    let residents: Vec<Value> =
+        w.hh.iter()
+            .filter(|h| h.alive && h.home == i as u32)
+            .take(12)
+            .map(|h| {
+                json!({
+                    "skill": h.skill,
+                    "employed": h.job != NONE,
+                    "rent": h.rent,
+                    "income": h.income_labor + h.income_capital + h.income_transfer,
+                    "taxes": h.taxes_paid,
+                    "wealth": h.wealth,
+                    "utility": h.utility,
+                })
             })
-        })
-        .collect();
+            .collect();
     let inv = w.investor_for(p.owner[i]);
-    let best = econ::best_development(w, i, &inv).map(|d| {
-        json!({"use": format!("{:?}", d.land_use), "floors": d.floors, "residual": d.residual, "cost": d.cost})
-    });
+    let best = econ::best_development(w, i, &inv).map(
+        |d| json!({"use": format!("{:?}", d.land_use), "floors": d.floors, "residual": d.residual, "cost": d.cost}),
+    );
     json!({
         "cell": i, "x": x, "y": y,
         "land_use": format!("{:?}", p.land_use[i]),

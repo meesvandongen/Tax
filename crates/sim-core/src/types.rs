@@ -24,10 +24,7 @@ pub enum LandUse {
 
 impl LandUse {
     pub fn is_building(self) -> bool {
-        matches!(
-            self,
-            LandUse::Residential | LandUse::Commercial | LandUse::Industrial | LandUse::Civic
-        )
+        matches!(self, LandUse::Residential | LandUse::Commercial | LandUse::Industrial | LandUse::Civic)
     }
     pub fn is_developable(self) -> bool {
         matches!(
@@ -41,10 +38,7 @@ impl LandUse {
         )
     }
     pub fn is_private_use(self) -> bool {
-        matches!(
-            self,
-            LandUse::Residential | LandUse::Commercial | LandUse::Industrial
-        )
+        matches!(self, LandUse::Residential | LandUse::Commercial | LandUse::Industrial)
     }
     pub fn is_urban(self) -> bool {
         !matches!(self, LandUse::Water | LandUse::Wild | LandUse::Farm)

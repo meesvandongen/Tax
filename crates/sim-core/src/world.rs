@@ -137,6 +137,8 @@ pub struct World {
     pub retail_pool: Vec<f32>,
     /// The founding crossing.
     pub center: usize,
+    /// Average private wage per unit skill (updated each tick).
+    pub wage_cache: f32,
 }
 
 impl World {
@@ -184,8 +186,10 @@ impl World {
             labour_slack: 1.0,
             retail_pool: vec![0.0; n],
             center: 0,
+            wage_cache: 0.0,
             cfg,
         };
+        w.wage_cache = w.cfg.econ.base_wage;
         crate::genesis::found_settlement(&mut w);
         w
     }

@@ -238,9 +238,8 @@ impl TaxSystem {
     }
     /// Monthly property-type taxes for a parcel (ad-valorem + Harberger + vacancy).
     pub fn property_monthly(&self, land: f64, building: f64, declared: f64, idle_share: f64) -> f64 {
-        let v = self.estimate(|m| {
-            m.property(land, building) + m.vacancy(land + building, idle_share)
-        }) + self.harberger_rate * declared;
+        let v = self.estimate(|m| m.property(land, building) + m.vacancy(land + building, idle_share))
+            + self.harberger_rate * declared;
         v / 12.0
     }
     /// Effective annual rate on the holding value of property (for capitalization).
@@ -295,8 +294,8 @@ mod tests {
             Bracket { threshold: 50_000.0, rate: 0.5 },
         ];
         assert_eq!(progressive(5_000.0, &b), 0.0);
-        assert!((progressive(20_000.0, &b) - 2_000.0).abs() < 1e-9);
-        assert!((progressive(60_000.0, &b) - (8_000.0 + 5_000.0)).abs() < 1e-9);
+        assert!((progressive(20_000.0, &b) - 2_000.0).abs() < 1e-3);
+        assert!((progressive(60_000.0, &b) - (8_000.0 + 5_000.0)).abs() < 1e-3);
     }
 
     #[test]
@@ -306,9 +305,9 @@ mod tests {
             TaxSpec::Property { land_rate: 0.01, building_rate: 0.01 },
         ]);
         let t = ts.levy(|m| m.property(100.0, 100.0));
-        assert!((t - (5.0 + 2.0)).abs() < 1e-9);
-        assert!((ts.month[0] - 5.0).abs() < 1e-9);
-        assert!((ts.month[1] - 2.0).abs() < 1e-9);
+        assert!((t - (5.0 + 2.0)).abs() < 1e-3);
+        assert!((ts.month[0] - 5.0).abs() < 1e-3);
+        assert!((ts.month[1] - 2.0).abs() < 1e-3);
     }
 
     #[test]

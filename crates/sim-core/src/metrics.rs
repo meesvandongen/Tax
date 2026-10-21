@@ -278,13 +278,7 @@ pub fn compute(w: &World) -> Metrics {
     // ---- government
     let g = &w.gov;
     m.revenue = w.taxes.month.iter().sum();
-    m.revenue_by_tax = w
-        .taxes
-        .specs()
-        .iter()
-        .zip(&w.taxes.month)
-        .map(|(s, v)| (s.kind().to_string(), *v))
-        .collect();
+    m.revenue_by_tax = w.taxes.specs().iter().zip(&w.taxes.month).map(|(s, v)| (s.kind().to_string(), *v)).collect();
     m.spend_services = g.spend_services;
     m.spend_infrastructure = g.spend_infrastructure;
     m.spend_parks = g.spend_parks;

@@ -19,7 +19,8 @@ pub struct Terrain {
 }
 
 fn hash2(x: i32, y: i32, seed: u32) -> f32 {
-    let mut h = (x as u32).wrapping_mul(0x8da6_b343) ^ (y as u32).wrapping_mul(0xd816_3841) ^ seed.wrapping_mul(0xcb1a_b31f);
+    let mut h =
+        (x as u32).wrapping_mul(0x8da6_b343) ^ (y as u32).wrapping_mul(0xd816_3841) ^ seed.wrapping_mul(0xcb1a_b31f);
     h ^= h >> 13;
     h = h.wrapping_mul(0x5bd1_e995);
     h ^= h >> 15;
@@ -78,12 +79,12 @@ impl Terrain {
         // River: a meandering path from top to bottom.
         let mut water = vec![false; n];
         let mut rx = w * rng.range_f64(0.35, 0.6) as f32;
-        let phase = rng.range_f64(0.0, 6.28) as f32;
+        let phase = rng.range_f64(0.0, std::f64::consts::TAU) as f32;
         let amp = rng.range_f64(6.0, 14.0) as f32;
         let river_seed = seed ^ 0xA5A5;
         for y in 0..dims.h {
             let yf = y as f32;
-            let meander = (yf / h * 6.28 * 1.3 + phase).sin() * amp
+            let meander = (yf / h * std::f32::consts::TAU * 1.3 + phase).sin() * amp
                 + (fbm(yf * 0.05, 3.3, 3, river_seed) - 0.5) * 18.0;
             let cx = rx + meander;
             let half = 1.4 + fbm(yf * 0.08, 9.1, 2, river_seed) * 1.6;
@@ -156,13 +157,10 @@ impl Terrain {
             let (x, y) = dims.xy(i);
             let near_water = (1.0 - water_dist[i] / 25.0).max(0.0);
             let flat = (1.0 - slope[i] / 3.0).max(0.0);
-            fertility[i] = (0.3 + 0.5 * near_water * flat + 0.2 * fbm(x as f32 * 0.07, y as f32 * 0.07, 3, seed ^ 0x77)).min(1.0);
+            fertility[i] =
+                (0.3 + 0.5 * near_water * flat + 0.2 * fbm(x as f32 * 0.07, y as f32 * 0.07, 3, seed ^ 0x77)).min(1.0);
             let forest = fbm(x as f32 * 0.045, y as f32 * 0.045, 4, seed ^ 0xF0F0);
-            vegetation[i] = if water[i] {
-                0.0
-            } else {
-                ((forest - 0.38) * 2.2 + height[i] / 120.0).clamp(0.12, 1.0)
-            };
+            vegetation[i] = if water[i] { 0.0 } else { ((forest - 0.38) * 2.2 + height[i] / 120.0).clamp(0.12, 1.0) };
         }
 
         Terrain { height, water, slope, fertility, vegetation, water_dist }

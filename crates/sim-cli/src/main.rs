@@ -54,11 +54,37 @@ fn config_from(a: &HashMap<String, String>) -> SimConfig {
 }
 
 const CSV_COLUMNS: &[&str] = &[
-    "year", "households", "unhoused", "unemployment", "mean_wage", "median_income", "gdp", "gini_income",
-    "gini_wealth", "top10_wealth_share", "median_rent", "rent_burden", "housing_vacancy", "land_price_index",
-    "avg_floors", "urban_cells", "idle_urban_lots", "speculative_holds", "derelict", "green_cover",
-    "pollution_exposure", "avg_commute", "revenue", "gov_cash", "absentee_land_share", "emigrants",
-    "wealthy_emigrants", "capital_flight", "deterred_workers", "blocked_sales", "firms",
+    "year",
+    "households",
+    "unhoused",
+    "unemployment",
+    "mean_wage",
+    "median_income",
+    "gdp",
+    "gini_income",
+    "gini_wealth",
+    "top10_wealth_share",
+    "median_rent",
+    "rent_burden",
+    "housing_vacancy",
+    "land_price_index",
+    "avg_floors",
+    "urban_cells",
+    "idle_urban_lots",
+    "speculative_holds",
+    "derelict",
+    "green_cover",
+    "pollution_exposure",
+    "avg_commute",
+    "revenue",
+    "gov_cash",
+    "absentee_land_share",
+    "emigrants",
+    "wealthy_emigrants",
+    "capital_flight",
+    "deterred_workers",
+    "blocked_sales",
+    "firms",
 ];
 
 fn csv_row(m: &Metrics) -> String {
@@ -177,9 +203,8 @@ fn cmd_compare(a: &HashMap<String, String>) {
     let threads = thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
     eprintln!("running {} simulations on {} threads…", jobs.len(), threads);
     let results: Vec<(String, u64, Metrics)> = thread::scope(|scope| {
-        let chunks: Vec<Vec<(String, u64)>> = (0..threads)
-            .map(|t| jobs.iter().skip(t).step_by(threads).cloned().collect())
-            .collect();
+        let chunks: Vec<Vec<(String, u64)>> =
+            (0..threads).map(|t| jobs.iter().skip(t).step_by(threads).cloned().collect()).collect();
         let handles: Vec<_> = chunks
             .into_iter()
             .map(|chunk| {
@@ -204,9 +229,9 @@ fn cmd_compare(a: &HashMap<String, String>) {
         handles.into_iter().flat_map(|h| h.join().unwrap()).collect()
     });
     // table
-    print!("{:<22}", "indicator");
+    print!("{:<22}", "indicator (mean ± se)");
     for n in &names {
-        print!("{:>14}", n);
+        print!("{:>20}", n);
     }
     println!();
     for (key, scale, label) in COMPARE {
@@ -217,15 +242,19 @@ fn cmd_compare(a: &HashMap<String, String>) {
                 .filter(|(rn, _, _)| rn == n)
                 .map(|(_, _, m)| serde_json::to_value(m).unwrap()[*key].as_f64().unwrap_or(0.0) * scale)
                 .collect();
-            let mean = vals.iter().sum::<f64>() / vals.len().max(1) as f64;
-            print!("{:>14.2}", mean);
+            let k = vals.len().max(1) as f64;
+            let mean = vals.iter().sum::<f64>() / k;
+            let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (k - 1.0).max(1.0);
+            let se = (var / k).sqrt();
+            print!("{:>11.2} ±{:<7.2}", mean, se);
         }
         println!();
     }
     if let Some(dir) = a.get("out") {
         fs::create_dir_all(dir).unwrap();
         let path = format!("{dir}/compare.json");
-        let rows: Vec<_> = results.iter().map(|(n, s, m)| serde_json::json!({"preset": n, "seed": s, "metrics": m})).collect();
+        let rows: Vec<_> =
+            results.iter().map(|(n, s, m)| serde_json::json!({"preset": n, "seed": s, "metrics": m})).collect();
         fs::write(&path, serde_json::to_string_pretty(&rows).unwrap()).unwrap();
         eprintln!("wrote {path}");
     }
@@ -263,10 +292,35 @@ fn deserialize_metrics(v: serde_json::Value) -> Option<Metrics> {
         ($($f:ident),*) => { $( m.$f = get(stringify!($f)) as _; )* };
     }
     set!(
-        households, unhoused, unemployment, mean_wage, median_income, gdp, median_rent, rent_burden, housing_vacancy,
-        land_price_index, avg_floors, urban_cells, idle_urban_lots, speculative_holds, derelict, gini_income, gini_wealth,
-        top10_wealth_share, absentee_land_share, green_cover, pollution_exposure, avg_commute, revenue, gov_cash,
-        wealthy_emigrants, deterred_workers, blocked_sales, mean_utility, year
+        households,
+        unhoused,
+        unemployment,
+        mean_wage,
+        median_income,
+        gdp,
+        median_rent,
+        rent_burden,
+        housing_vacancy,
+        land_price_index,
+        avg_floors,
+        urban_cells,
+        idle_urban_lots,
+        speculative_holds,
+        derelict,
+        gini_income,
+        gini_wealth,
+        top10_wealth_share,
+        absentee_land_share,
+        green_cover,
+        pollution_exposure,
+        avg_commute,
+        revenue,
+        gov_cash,
+        wealthy_emigrants,
+        deterred_workers,
+        blocked_sales,
+        mean_utility,
+        year
     );
     Some(m)
 }

@@ -66,7 +66,8 @@ pub extern "C" fn out_len() -> usize {
 #[no_mangle]
 pub unsafe extern "C" fn sim_new(ptr: *const u8, len: usize) -> u32 {
     let text = read_str(ptr, len);
-    let cfg: Result<SimConfig, _> = if text.trim().is_empty() { Ok(SimConfig::default()) } else { serde_json::from_str(text) };
+    let cfg: Result<SimConfig, _> =
+        if text.trim().is_empty() { Ok(SimConfig::default()) } else { serde_json::from_str(text) };
     with(|s| match cfg {
         Ok(cfg) => {
             s.sim = Some(Simulation::new(cfg));

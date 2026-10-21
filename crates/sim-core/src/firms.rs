@@ -90,13 +90,8 @@ fn expected_profit_per_slot(w: &World, i: usize, sector: Sector) -> f32 {
 pub fn entry(w: &mut World) {
     let rate = w.cfg.econ.firm_entry_rate as f64;
     let required_margin = 0.04 * w.market_wage_rate();
-    let founders: Vec<u32> = w
-        .hh
-        .iter()
-        .enumerate()
-        .filter(|(_, h)| h.alive && h.cash > 150_000.0)
-        .map(|(id, _)| id as u32)
-        .collect();
+    let founders: Vec<u32> =
+        w.hh.iter().enumerate().filter(|(_, h)| h.alive && h.cash > 150_000.0).map(|(id, _)| id as u32).collect();
     for i in 0..w.p.len() {
         let u = w.p.land_use[i];
         let sector = match u {

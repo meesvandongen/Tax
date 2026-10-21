@@ -49,7 +49,10 @@ pub fn assess(w: &mut World, force: bool) {
         let a = (coverage[i] / (coverage[i] + 0.5)) as f64;
         let land = (a * smooth[i] as f64 + (1.0 - a) * farm).max(farm);
         let eps = 1.0 + noise * w.rng.normal().clamp(-2.5, 2.5);
-        w.p.assessed_land[i] = (land * eps).max(0.0) as f32;
+        // Assessors average over several valuation rounds (≈ 2 years).
+        let fresh = (land * eps).max(0.0) as f32;
+        let old = w.p.assessed_land[i];
+        w.p.assessed_land[i] = if force || old <= 0.0 { fresh } else { 0.75 * old + 0.25 * fresh };
         w.p.assessed_bldg[i] = econ::building_value(w, i) as f32;
         if w.p.months_since_sale[i] >= 24 || w.p.price[i] <= 0.0 {
             w.p.price[i] = w.p.assessed_land[i] + w.p.assessed_bldg[i];
@@ -163,22 +166,12 @@ pub fn market(w: &mut World) {
     let e = w.cfg.econ.clone();
     let n = w.p.len();
     // Resident investors: households with savings to deploy.
-    let rich: Vec<u32> = w
-        .hh
-        .iter()
-        .enumerate()
-        .filter(|(_, h)| h.alive && h.cash > 60_000.0)
-        .map(|(id, _)| id as u32)
-        .collect();
+    let rich: Vec<u32> =
+        w.hh.iter().enumerate().filter(|(_, h)| h.alive && h.cash > 60_000.0).map(|(id, _)| id as u32).collect();
 
     // ---- forced sales: owners who cannot meet obligations
-    let mut distressed: Vec<u32> = w
-        .hh
-        .iter()
-        .enumerate()
-        .filter(|(_, h)| h.alive && h.cash < 0.0)
-        .map(|(id, _)| id as u32)
-        .collect();
+    let mut distressed: Vec<u32> =
+        w.hh.iter().enumerate().filter(|(_, h)| h.alive && h.cash < 0.0).map(|(id, _)| id as u32).collect();
     w.rng.shuffle(&mut distressed);
     if !distressed.is_empty() {
         let mut owned: Vec<Vec<u32>> = vec![Vec::new(); w.hh.len()];
@@ -190,9 +183,10 @@ pub fn market(w: &mut World) {
             }
         }
         for id in distressed {
-            let Some(&i) = owned[id as usize].iter().max_by(|a, b| {
-                w.p.assessed_land[**a as usize].total_cmp(&w.p.assessed_land[**b as usize])
-            }) else {
+            let Some(&i) = owned[id as usize]
+                .iter()
+                .max_by(|a, b| w.p.assessed_land[**a as usize].total_cmp(&w.p.assessed_land[**b as usize]))
+            else {
                 continue;
             };
             let i = i as usize;
@@ -216,7 +210,9 @@ pub fn market(w: &mut World) {
     let harberger = w.taxes.harberger_rate() > 0.0;
     for _ in 0..samples {
         let i = w.rng.below(n);
-        if !crate::property::taxable(w, i) || !w.p.land_use[i].is_developable() && w.p.land_use[i] != LandUse::Construction {
+        if !crate::property::taxable(w, i)
+            || !w.p.land_use[i].is_developable() && w.p.land_use[i] != LandUse::Construction
+        {
             continue;
         }
         if w.p.land_use[i] == LandUse::Construction {
@@ -247,10 +243,7 @@ pub fn market(w: &mut World) {
                 continue;
             }
         }
-        let best = bids
-            .into_iter()
-            .filter(|b| b.buyer != seller)
-            .max_by(|a, b| a.value.total_cmp(&b.value));
+        let best = bids.into_iter().filter(|b| b.buyer != seller).max_by(|a, b| a.value.total_cmp(&b.value));
         let Some(b) = best else { continue };
         if b.value > reservation * (1.0 + t_rate) {
             let price = 0.5 * (reservation + b.value / (1.0 + t_rate));

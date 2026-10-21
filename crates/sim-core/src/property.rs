@@ -3,7 +3,7 @@
 //! if the extra rent is worth more than the upkeep *after* the extra
 //! building tax that a better-kept building attracts.
 
-use crate::econ::{building_value, construction_cost, market_rent};
+use crate::econ::{construction_cost, market_rent};
 use crate::types::*;
 use crate::world::World;
 
@@ -31,8 +31,9 @@ pub fn taxable(w: &World, i: usize) -> bool {
 
 pub fn owner_costs(w: &mut World) {
     let e = w.cfg.econ.clone();
+    // Taxes that grow with building value (building tax, self-assessed tax).
     let tau_b = w.taxes.estimate(|m| m.property(0.0, 1.0)) + w.taxes.harberger_rate();
-    let tau_l = w.taxes.estimate(|m| m.property(1.0, 0.0)) + w.taxes.harberger_rate();
+    let h = w.taxes.harberger_rate();
     let mut deferred = 0u32;
     for i in 0..w.p.len() {
         let owner = w.p.owner[i];
@@ -72,7 +73,7 @@ pub fn owner_costs(w: &mut World) {
             let gross = market_rent(w, i, u, w.p.units[i]) as f64 * w.p.occupied[i].max(w.p.units[i] / 2) as f64;
             // PV gain from preventing one month of depreciation.
             let annual_benefit = 12.0 * 0.4 * gross * (1.0 - inv.t_inc) - tau_b * 0.7 * cost;
-            let pv_gain = e.depreciation as f64 * annual_benefit / (inv.r - inv.g + tau_l + inv.w).max(0.01);
+            let pv_gain = e.depreciation as f64 * annual_benefit / (inv.r - inv.g + h + inv.w).max(0.01);
             let can_pay = w.owner_cash(owner) > upkeep;
             if pv_gain >= upkeep && can_pay {
                 match owner {
@@ -100,5 +101,4 @@ pub fn owner_costs(w: &mut World) {
         }
     }
     w.flows.deferred_maintenance = deferred;
-    let _ = building_value;
 }

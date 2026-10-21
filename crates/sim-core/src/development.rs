@@ -1,7 +1,8 @@
 //! Construction and redevelopment. Owners periodically compare
-//!   * keeping the parcel as is,
-//!   * building the best (use, height) option now,
-//!   * waiting a year for rents to grow (real-option / speculation rule).
+//! * keeping the parcel as is,
+//! * building the best (use, height) option now,
+//! * waiting a year for rents to grow (real-option / speculation rule).
+//!
 //! The tax schedule enters only through the valuation functions.
 
 use crate::econ::{self, DevOption};
@@ -40,13 +41,8 @@ pub fn progress(w: &mut World) {
 /// Clear a parcel for construction: tenants evicted, firm closed.
 pub fn clear_site(w: &mut World, i: usize) {
     if w.p.land_use[i] == LandUse::Residential && w.p.occupied[i] > 0 {
-        let tenants: Vec<u32> = w
-            .hh
-            .iter()
-            .enumerate()
-            .filter(|(_, h)| h.alive && h.home == i as u32)
-            .map(|(id, _)| id as u32)
-            .collect();
+        let tenants: Vec<u32> =
+            w.hh.iter().enumerate().filter(|(_, h)| h.alive && h.home == i as u32).map(|(id, _)| id as u32).collect();
         for id in tenants {
             evict(w, id);
         }

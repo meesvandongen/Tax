@@ -67,8 +67,9 @@ h4 { margin: 10px 0 4px; font-size: 12px; }
 .chart { margin-bottom: 8px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px; }
 .chart-title { font-weight: 600; font-size: 12px; margin: 2px 4px; cursor: help; }
 .uplot { font-family: inherit; }
-.u-legend { font-size: 11px; color: var(--muted); }
-.u-legend .u-series:nth-child(n + 2) { padding: 0 4px; }
+.u-legend { font-size: 11px; color: var(--muted); text-align: left; margin: 0 4px; }
+.u-legend .u-series { padding: 0 6px 0 0; }
+.u-legend .u-marker { width: 10px; height: 3px; }
 
 .preset-row select { width: 100%; }
 .tax-card { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; }

@@ -66,12 +66,7 @@ pub fn budget(w: &mut World) {
     w.gov.starts_ema = 0.95 * w.gov.starts_ema + 0.05 * w.flows.buildings_started as f64;
 
     // Welfare level: budget spread over likely recipients.
-    let poor = w
-        .hh
-        .iter()
-        .filter(|h| h.alive && (h.income_labor + h.income_capital) < 1500.0)
-        .count()
-        .max(1) as f64;
+    let poor = w.hh.iter().filter(|h| h.alive && (h.income_labor + h.income_capital) < 1500.0).count().max(1) as f64;
     w.gov.welfare_budget = share(s.welfare);
     w.gov.welfare_level = (w.gov.welfare_budget / poor).min(1800.0);
 

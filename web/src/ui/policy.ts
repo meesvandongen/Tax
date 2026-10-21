@@ -84,7 +84,7 @@ export const TAX_META: TaxMeta[] = [
     label: 'Harberger tax (COST)',
     help: 'Owners self-assess their property and pay a % of that value; anyone may buy at the declared price.',
     params: [pct('rate', 'rate / year', 0.2)],
-    make: () => ({ kind: 'harberger', rate: 0.07 }),
+    make: () => ({ kind: "harberger", rate: 0.04 }),
   },
   {
     kind: 'pollution',

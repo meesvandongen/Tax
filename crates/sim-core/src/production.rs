@@ -4,8 +4,8 @@
 //! investment, circulates through wages, rents and local shopping, and leaves
 //! through imports, absentee income and emigrants' wealth.
 
-use crate::grid::exp_blur;
 use crate::fields::OUTSIDE_SHOP_CAPACITY;
+use crate::grid::exp_blur;
 use crate::labour::industry_tfp;
 use crate::types::*;
 use crate::world::World;
@@ -39,17 +39,11 @@ pub fn run(w: &mut World) {
         cap[f.parcel as usize] += f.workers as f32 * f.productivity;
     }
     let s_field = exp_blur(&cap, w.dims, crate::fields::SHOP_LAMBDA);
-    let ratio: Vec<f32> = w
-        .retail_pool
-        .iter()
-        .zip(&s_field)
-        .map(|(c, s)| c / (s + OUTSIDE_SHOP_CAPACITY))
-        .collect();
+    let ratio: Vec<f32> = w.retail_pool.iter().zip(&s_field).map(|(c, s)| c / (s + OUTSIDE_SHOP_CAPACITY)).collect();
     let draw = exp_blur(&ratio, w.dims, crate::fields::SHOP_LAMBDA);
     let pool_total: f64 = w.retail_pool.iter().map(|&v| v as f64).sum();
 
     // ---- per-firm accounts
-    let payroll = w.taxes.payroll_rate();
     let mut retail_revenue = 0.0;
     let mut emissions = vec![0f32; n];
     let mut abatement_total = 0.0;
@@ -97,7 +91,6 @@ pub fn run(w: &mut World) {
         let profit = revenue - wages - payroll_tax - emission_tax - abatement - rent;
         let corp = if profit > 0.0 { w.taxes.levy(|m| m.profit(profit * 12.0) / 12.0) } else { 0.0 };
         w.gov.cash += payroll_tax + emission_tax + corp;
-        let _ = payroll;
 
         // Rent to the landlord.
         let landlord = w.p.owner[i];

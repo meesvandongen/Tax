@@ -130,3 +130,53 @@ fn every_preset_runs() {
         assert!(sim.world.history.last().unwrap().households > 0, "{name}");
     }
 }
+
+#[test]
+fn private_development_keeps_the_street_plan_free() {
+    let cfg = SimConfig { seed: 7, width: 96, height: 96, ..Default::default() };
+    let mut sim = Simulation::new(cfg);
+    let on_plan = |w: &World| -> Vec<usize> {
+        (0..w.p.len())
+            .filter(|&i| sim_core::government::on_street_plan(w, i))
+            .filter(|&i| w.p.land_use[i].is_building() || w.p.land_use[i] == LandUse::Construction)
+            .collect()
+    };
+    let founding = on_plan(&sim.world);
+    sim.run(120);
+    let w = &sim.world;
+    for i in on_plan(w) {
+        assert!(
+            founding.contains(&i) || w.p.owner[i] == sim_core::types::Owner::Gov,
+            "private building on the street plan at {i}"
+        );
+    }
+    assert!(w.gov.roads_built > 0);
+}
+
+#[test]
+fn roads_expropriate_buildings_in_the_way_at_full_compensation() {
+    let mut sim = grown_city(48);
+    let w = &mut sim.world;
+    // Put a building on every open end of the street plan.
+    let ends: Vec<usize> = (0..w.p.len())
+        .filter(|&i| sim_core::government::reserved_for_street(w, i))
+        .filter(|&i| w.dims.neighbors4(i).any(|j| w.p.land_use[j] == LandUse::Road))
+        .collect();
+    assert!(!ends.is_empty());
+    for &i in &ends {
+        w.p.land_use[i] = LandUse::Residential;
+        w.p.floors[i] = 1;
+        w.p.units[i] = sim_core::econ::units_for(w, LandUse::Residential, 1);
+        w.p.condition[i] = 1.0;
+    }
+    sim_core::land::assess(w, true);
+    // Plenty of money and demand for land.
+    w.gov.infra_budget = 1e9;
+    w.gov.starts_ema = 1e3;
+    let before = w.gov.roads_built;
+    sim_core::government::budget(w);
+    assert!(w.gov.roads_built > before, "no road built");
+    assert!(w.gov.roads_expropriated > 0, "no building expropriated");
+    // The owners were paid at least the buildings' replacement value.
+    assert!(w.gov.spend_compensation > 400_000.0 * w.gov.roads_expropriated as f64);
+}

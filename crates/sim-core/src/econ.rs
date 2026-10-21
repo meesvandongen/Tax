@@ -123,7 +123,7 @@ pub fn firm_bid_rent(w: &World, i: usize, u: LandUse, slots: u16) -> f32 {
             let growth = (1.0 + e.outside_growth).powf(w.year());
             let a = e.industry_output_per_worker
                 * e.industry_price
-                * w.cycle
+                * cycle_outlook(w)
                 * growth
                 * (1.0 + e.agglomeration * (1.0 + w.f.industry_access[i]).ln());
             let em = w.taxes.estimate(|m| m.emission(e.pollution_per_worker as f64)) as f32;
@@ -133,6 +133,16 @@ pub fn firm_bid_rent(w: &World, i: usize, u: LandUse, slots: u16) -> f32 {
     };
     let pre_tax = (revenue - wage * 1.05).max(0.0);
     pre_tax - w.taxes.profit_monthly(pre_tax as f64) as f32
+}
+
+/// The export price expected over a typical ten-year occupancy. The cycle
+/// is mean-reverting (AR(1)), so a boom or slump fades within a few years:
+/// premises are priced through the cycle, not at today's price.
+pub fn cycle_outlook(w: &World) -> f32 {
+    let rho = crate::sim::CYCLE_PERSISTENCE;
+    let months = 120.0;
+    let mean_weight = (1.0 - rho.powf(months)) / (months * (1.0 - rho));
+    1.0 + mean_weight * (w.cycle - 1.0)
 }
 
 /// (local occupancy, local units, local units under construction)
@@ -221,7 +231,18 @@ pub fn current_use_value(w: &World, i: usize, inv: &Investor) -> f64 {
             // Rent actually achievable is capped by building condition.
             let quality = 0.6 + 0.4 * p.condition[i] as f64;
             let n = noi(w, i, u, units, occ, bldg) * quality;
-            capitalize(w, inv, i, n, bldg, 1.0 - occ)
+            let market = capitalize(w, inv, i, n, bldg, 1.0 - occ);
+            // Let business premises are worth at least the lease the sitting
+            // tenant pays, as an appraiser would value them, not only what a
+            // newcomer might bid in today's labour market.
+            let leased = leased_slots(w, i);
+            if leased > 0 {
+                let n = p.asking_rent[i] as f64 * leased as f64 - w.cfg.econ.maintenance_rate as f64 * bldg;
+                let idle = 1.0 - leased as f64 / units.max(1) as f64;
+                market.max(capitalize(w, inv, i, n, bldg, idle))
+            } else {
+                market
+            }
         }
         LandUse::Farm | LandUse::Wild => {
             let farm = w.cfg.econ.farm_rent as f64 * (0.4 + w.terrain.fertility[i] as f64);
@@ -241,19 +262,47 @@ pub fn current_use_value(w: &World, i: usize, inv: &Investor) -> f64 {
     }
 }
 
-/// Best redevelopment option for this parcel from `inv`'s perspective.
-pub fn best_development(w: &World, i: usize, inv: &Investor) -> Option<DevOption> {
+/// Cost of clearing the site: demolishing a building or felling woodland.
+pub fn demolition_cost(w: &World, i: usize) -> f64 {
     let p = &w.p;
-    if !p.road_access[i] || !p.land_use[i].is_developable() {
-        return None;
-    }
-    let demolition = if p.land_use[i].is_building() {
+    if p.land_use[i].is_building() {
         w.cfg.econ.demolition_cost as f64 * (1.0 + p.floors[i] as f64 * 0.3)
     } else if p.land_use[i] == LandUse::Wild {
         w.cfg.econ.demolition_cost as f64 * 0.2 * p.nature[i] as f64
     } else {
         0.0
-    };
+    }
+}
+
+/// Space a business tenant leases (its workers, but at least a quarter of
+/// the premises; see `production::run`).
+pub fn leased_slots(w: &World, i: usize) -> u16 {
+    if w.p.firm[i] == NONE {
+        0
+    } else {
+        w.p.occupied[i].max(w.p.units[i] / 4)
+    }
+}
+
+/// What the owner must pay sitting tenants to clear the building:
+/// relocation allowances for households, lease buy-outs for firms.
+pub fn tenant_compensation(w: &World, i: usize) -> f64 {
+    let months = w.cfg.econ.relocation_months as f64;
+    let rent = w.p.asking_rent[i] as f64;
+    match w.p.land_use[i] {
+        LandUse::Residential => months * rent * w.p.occupied[i] as f64,
+        LandUse::Commercial | LandUse::Industrial => 2.0 * months * rent * leased_slots(w, i) as f64,
+        _ => 0.0,
+    }
+}
+
+/// Best redevelopment option for this parcel from `inv`'s perspective.
+pub fn best_development(w: &World, i: usize, inv: &Investor) -> Option<DevOption> {
+    let p = &w.p;
+    if !p.road_access[i] || !p.land_use[i].is_developable() || crate::government::on_street_plan(w, i) {
+        return None;
+    }
+    let demolition = demolition_cost(w, i) + tenant_compensation(w, i);
     let mut best: Option<DevOption> = None;
     for &u in &[LandUse::Residential, LandUse::Commercial, LandUse::Industrial] {
         for &floors in FLOOR_OPTIONS {

@@ -90,6 +90,10 @@ pub struct EconParams {
     /// Monthly depreciation of condition when not maintained.
     pub depreciation: f32,
     pub demolition_cost: f32,
+    /// Compensation owed to a sitting household when its building is
+    /// cleared, in months of its rent (statutory relocation allowance).
+    /// Business tenants get twice this as a lease buy-out.
+    pub relocation_months: f32,
     /// Monthly agricultural rent per farm parcel (the rural land-use floor).
     pub farm_rent: f32,
     pub rent_adjust: f32,
@@ -153,6 +157,7 @@ impl Default for EconParams {
             maintenance_rate: 0.0012,
             depreciation: 0.002,
             demolition_cost: 60_000.0,
+            relocation_months: 6.0,
             farm_rent: 15.0,
             rent_adjust: 0.015,
             loan_to_value: 0.7,

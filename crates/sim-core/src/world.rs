@@ -59,6 +59,8 @@ pub struct Government {
     /// Fraction of public job capacity funded.
     pub public_staffing: f64,
     pub roads_built: u32,
+    /// Road cells laid through expropriated buildings.
+    pub roads_expropriated: u32,
     pub parks_built: u32,
 }
 

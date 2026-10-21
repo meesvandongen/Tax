@@ -90,7 +90,10 @@ V = (12·NOI·(1 − t_inc) − T_fixed) / (r − g + h + w)
 * **r:**
   * absentee: outside return + 1.5%;
   * residents: deposit rate + 3.5%.
-* **g:** adaptive expectation, long-run growth + `speculation` × recent rent and price trend, capped below r.
+* **g:** adaptive expectation: long-run growth + `speculation` (0.1) × the recent *real rent* trend, bounded to
+  −2 / +1.5 points around long-run growth and below r. Land prices are deliberately not extrapolated: they are
+  themselves valuations built on g, and feeding them back produced self-fulfilling boom-bust cycles in land
+  values (100× within a few years).
 
 Consequences that follow from this formula rather than being imposed:
 * A land value tax is a fixed charge, so it is neutral for height and maintenance. It still lowers land prices,
@@ -140,7 +143,11 @@ includes the point (condition 0.12) below which nobody new will rent a dwelling.
   * land without street access can only be farmed, so it is assessed as farmland;
   * recent sale prices (net of the building) are blended in, and values are floored at agricultural value;
   * with ± assessment noise;
-  * owners **appeal** assessments more than 10% above the current value, so smoothing only delays increases.
+  * owners **appeal** assessments more than 10% above the current value, so smoothing only delays increases;
+  * the value is **self-consistent with the land tax**: buyers deduct the tax on the assessed land, and the
+    assessment is the land value, so the assessor solves `L = V(L)` (property taxes are linear in `L`, so
+    `L = V(0) / (1 + c)`). Valuing at last quarter's assessment instead made high assessments produce low values
+    and vice versa, and under a 6% land tax assessments oscillated every quarter.
 * **Voluntary sales:** a sample of parcels is offered to the absentee investor and a few resident households
   with savings. A trade happens if the best bid exceeds the owner's own valuation × (1 + transfer tax). Bids
   between the two count as **blocked sales** (lock-in).
@@ -276,7 +283,8 @@ includes the point (condition 0.12) below which nobody new will rent a dwelling.
 * unemployment, homelessness, vacancy, rent burden, wages and rents stay within broad bounds;
 * the government neither hoards decades of revenue nor runs up runaway debt, transfers do not exceed residents'
   market income, and welfare never pays out more than its budget;
-* no household holds absurd cash, and land prices stay finite;
+* no household holds absurd cash, and land prices stay finite and do not swing more than threefold within five
+  years (after the founding period);
 * bookkeeping: no parcel or firm belongs to a household that has left, and no building blocks a planned street.
 
 An earlier version failed these badly on long runs. Outside owners paid any tax out of nowhere, land was assessed

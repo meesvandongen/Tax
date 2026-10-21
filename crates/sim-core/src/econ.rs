@@ -216,8 +216,20 @@ pub fn permitted(w: &World, i: usize, u: LandUse, floors: u8) -> bool {
 }
 
 pub fn capitalize(w: &World, inv: &Investor, i: usize, noi_month: f64, bldg: f64, idle_share: f64) -> f64 {
+    capitalize_at_land(w, inv, i, noi_month, bldg, idle_share, w.p.assessed_land[i] as f64)
+}
+
+/// [`capitalize`] with the parcel's land assessed at `land`.
+pub fn capitalize_at_land(
+    w: &World,
+    inv: &Investor,
+    i: usize,
+    noi_month: f64,
+    bldg: f64,
+    idle_share: f64,
+    land: f64,
+) -> f64 {
     let t = &w.taxes;
-    let land = w.p.assessed_land[i] as f64;
     // Land in public use is exempt; land outside the boundary is valued as
     // if annexed, since developing it would bring it into the city. (Who
     // owns the parcel now does not matter: a buyer will owe the tax.)
@@ -375,6 +387,11 @@ pub fn best_development(w: &World, i: usize, inv: &Investor) -> Option<DevOption
 /// estimate for land value taxes: it does not depend on what the owner
 /// has actually built.
 pub fn vacant_site_value(w: &World, i: usize, inv: &Investor) -> f64 {
+    vacant_site_value_at_land(w, i, inv, w.p.assessed_land[i] as f64)
+}
+
+/// [`vacant_site_value`] if the land were assessed at `land`.
+pub fn vacant_site_value_at_land(w: &World, i: usize, inv: &Investor, land: f64) -> f64 {
     let p = &w.p;
     if !p.road_access[i]
         || matches!(p.land_use[i], LandUse::Water | LandUse::Road | LandUse::Park | LandUse::Civic)
@@ -395,10 +412,29 @@ pub fn vacant_site_value(w: &World, i: usize, inv: &Investor) -> f64 {
             if n <= 0.0 {
                 continue;
             }
-            best = best.max(capitalize(w, inv, i, n, cost, 1.0 - occ) - cost);
+            best = best.max(capitalize_at_land(w, inv, i, n, cost, 1.0 - occ, land) - cost);
         }
     }
     best
+}
+
+/// The site's land value consistent with its own land tax: buyers deduct the
+/// tax on the assessed land, and the assessment is the land value, so the
+/// value solves `L = V(L)`. Property taxes are linear in the assessment, so
+/// `V(L) = V(0) − c·L` and `L = V(0) / (1 + c)`. (Valuing land at the
+/// current assessment instead makes a high assessment produce a low value
+/// and vice versa, so assessments oscillate when land is taxed heavily.)
+pub fn self_consistent_site_value(w: &World, i: usize, inv: &Investor) -> f64 {
+    let untaxed = vacant_site_value_at_land(w, i, inv, 0.0);
+    if untaxed <= 0.0 {
+        return 0.0;
+    }
+    // Measure the slope well inside the range where the value stays above
+    // its floor of zero (a heavy land tax can capitalise at more than 100%).
+    let probe = 0.25 * untaxed;
+    let taxed = vacant_site_value_at_land(w, i, inv, probe);
+    let c = ((untaxed - taxed) / probe).max(0.0);
+    untaxed / (1.0 + c)
 }
 
 /// What `inv` would pay for the land + building as is, including the option
@@ -415,11 +451,15 @@ pub fn valuation(w: &World, i: usize, inv: &Investor) -> f64 {
 /// Expected growth term shared by all investors (adaptive expectations).
 pub fn expected_growth(w: &World, r: f64) -> f64 {
     let e = &w.econ;
-    let trend = w.rent_growth.max(w.price_growth * 0.5);
+    // Owners extrapolate the recent real growth of *rents*, the cash flows
+    // they are buying. Not land prices: those are themselves valuations
+    // built on this expectation, and feeding them back makes a self-fulfilling
+    // boom-and-bust cycle in land values.
+    let base = e.outside_growth as f64;
+    let trend = w.rent_growth - base;
     // Extrapolation is bounded: nobody prices a perpetuity on a boom lasting
     // forever (values scale with 1/(r − g), so small moves in g swing land
     // values, and land taxes, enormously).
-    let base = e.outside_growth as f64;
     (base + e.speculation as f64 * trend).clamp(base - 0.02, (base + 0.015).min(r - 0.035))
 }
 

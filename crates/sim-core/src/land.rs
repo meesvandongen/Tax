@@ -32,7 +32,8 @@ pub fn assess(w: &mut World, force: bool) {
         }
         let farm = farm_value(w, i, &inv);
         let bldg = econ::building_value(w, i);
-        let site = if w.p.in_city[i] || w.p.road_access[i] { econ::vacant_site_value(w, i, &inv) } else { 0.0 };
+        let site =
+            if w.p.in_city[i] || w.p.road_access[i] { econ::self_consistent_site_value(w, i, &inv) } else { 0.0 };
         let mut land = site.max(farm);
         if w.p.months_since_sale[i] < 24 && w.p.price[i] > 0.0 && u != LandUse::Construction {
             let sale_land = (w.p.price[i] as f64 - bldg).max(0.0);

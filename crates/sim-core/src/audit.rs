@@ -399,5 +399,17 @@ pub fn check(w: &World) -> Vec<String> {
     if m.land_price_index as f64 > 50_000.0 * growth {
         v.push(format!("land price index {:.0}k per urban cell", m.land_price_index));
     }
+    // Land values may cycle with rents, but not boom and bust by multiples
+    // within a few years (a symptom of self-referential expectations or
+    // assessments).
+    if w.year() >= 20.0 {
+        let recent = &w.history[w.history.len() - 60..];
+        let (lo, hi) = recent
+            .iter()
+            .fold((f32::INFINITY, 0f32), |(lo, hi), h| (lo.min(h.land_price_index), hi.max(h.land_price_index)));
+        if lo > 0.0 && hi > 3.0 * lo {
+            v.push(format!("land price index swung {:.1}x within five years ({lo:.0} to {hi:.0})", hi / lo));
+        }
+    }
     v
 }

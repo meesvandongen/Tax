@@ -111,7 +111,9 @@ pub struct EconParams {
     pub mortgage_rate: f32,
     /// Months of rent that an owner extrapolates price trends over.
     pub expectation_memory: f32,
-    /// Weight of extrapolated price growth in valuations (speculation).
+    /// Weight of extrapolated real rent growth in valuations (speculation).
+    /// Land is the residual of property value over building cost, so this
+    /// weight sets how strongly land values amplify the rent cycle.
     pub speculation: f32,
     /// Monthly probability an owner reviews a parcel for development or sale.
     pub review_rate: f32,
@@ -177,7 +179,7 @@ impl Default for EconParams {
             loan_to_value: 0.7,
             mortgage_rate: 0.05,
             expectation_memory: 24.0,
-            speculation: 0.25,
+            speculation: 0.1,
             review_rate: 0.04,
             assessment_noise: 0.08,
 

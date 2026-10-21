@@ -95,14 +95,19 @@ fn land_taxes_capitalise_into_lower_land_values() {
     let mut sim = grown_city(48);
     let w = &mut sim.world;
     let parcels = candidate_parcels(w);
+    // Land as the assessor values it: as if vacant, net of its own land tax.
     let value = |w: &mut World, specs: &[TaxSpec]| -> f64 {
         w.taxes = TaxSystem::new(specs);
         let inv = w.absentee_investor();
-        parcels.iter().map(|&i| sim_core::land::farm_value(w, i, &inv) + sim_core::econ::valuation(w, i, &inv)).sum()
+        parcels
+            .iter()
+            .map(|&i| sim_core::land::farm_value(w, i, &inv) + sim_core::econ::self_consistent_site_value(w, i, &inv))
+            .sum()
     };
     let v0 = value(w, &[]);
     let v1 = value(w, &[TaxSpec::LandValue { rate: 0.05 }]);
-    assert!(v1 < v0 * 0.8, "LVT should lower land values: {v0} -> {v1}");
+    // A 5% tax capitalises at 1 / (1 + 0.05 / (r − g)) with r − g ≈ 6%.
+    assert!(v1 < v0 * 0.7, "LVT should lower land values: {v0} -> {v1}");
 }
 
 #[test]
@@ -227,4 +232,27 @@ fn roads_expropriate_buildings_in_the_way_at_full_compensation() {
     assert!(w.gov.roads_expropriated > 0, "no building expropriated");
     // The owners were paid at least the buildings' replacement value.
     assert!(w.gov.spend_compensation > 400_000.0 * w.gov.roads_expropriated as f64);
+}
+
+/// The assessor values land net of the land tax on that same assessment
+/// (`L = V(L)`). Valuing it at last quarter's assessment instead made a
+/// high assessment produce a low value and vice versa, so under a heavy land
+/// tax assessments oscillated every quarter.
+#[test]
+fn land_assessment_is_consistent_with_its_own_tax() {
+    let mut sim = grown_city(48);
+    let w = &mut sim.world;
+    w.taxes = TaxSystem::new(&[TaxSpec::LandValue { rate: 0.06 }]);
+    let inv = w.absentee_investor();
+    let mut checked = 0;
+    for i in candidate_parcels(w) {
+        let l = sim_core::econ::self_consistent_site_value(w, i, &inv);
+        if l < 50_000.0 {
+            continue;
+        }
+        let v = sim_core::econ::vacant_site_value_at_land(w, i, &inv, l);
+        assert!((v - l).abs() < 0.05 * l, "cell {i}: assessed {l:.0} but worth {v:.0} at that assessment");
+        checked += 1;
+    }
+    assert!(checked > 10);
 }

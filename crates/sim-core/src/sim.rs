@@ -76,6 +76,7 @@ impl Simulation {
 
     pub fn set_policy(&mut self, policy: Policy) {
         self.world.taxes = TaxSystem::new(&policy.taxes);
+        self.world.taxes.set_index(self.world.index as f64);
         self.world.cfg.policy = policy;
     }
 
@@ -92,6 +93,7 @@ impl Simulation {
 }
 
 fn begin_tick(w: &mut World) {
+    w.update_index();
     w.flows = Flows::default();
     w.events.clear();
     w.taxes.reset_month();
@@ -110,10 +112,19 @@ fn begin_tick(w: &mut World) {
     w.update_labour_slack();
 }
 
-/// Outside-world shocks: an AR(1) business cycle on export prices.
+/// Outside world: an AR(1) business cycle on export prices, and the export
+/// price level falling as the city's exports grow large relative to their
+/// market (based on last month's volume).
 fn exogenous(w: &mut World) {
-    let shock = 0.025 * w.rng.normal() as f32;
+    let shock = 0.015 * w.rng.normal() as f32;
     w.cycle = (1.0 + 0.94 * (w.cycle - 1.0) + shock).clamp(0.7, 1.3);
+    let e = &w.cfg.econ;
+    if let Some(m) = w.history.last() {
+        let real = m.exports / w.index as f64 / w.export_price.max(0.1) as f64;
+        w.export_volume = if w.export_volume <= 0.0 { real } else { 0.97 * w.export_volume + 0.03 * real };
+    }
+    let rel = (w.export_volume / e.export_market_size.max(1.0) as f64).max(1.0);
+    w.export_price = rel.powf(-1.0 / e.export_demand_elasticity.max(0.5) as f64) as f32;
 }
 
 /// Price and rent indices with smoothed growth (feeds expectations).

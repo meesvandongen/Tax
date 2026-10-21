@@ -11,7 +11,7 @@ use crate::types::*;
 use crate::world::World;
 
 pub fn run(w: &mut World) {
-    let e = w.cfg.econ.clone();
+    let e = w.econ.clone();
     let n = w.dims.len();
     let nf = w.firms.len();
 
@@ -68,7 +68,10 @@ pub fn run(w: &mut World) {
                 (y, intensity as f32, abatement, units)
             }
             Sector::Retail => {
-                let r = f.workers as f64 * f.productivity as f64 * draw[i] as f64;
+                // Each worker can serve a limited volume of customers; demand
+                // beyond that goes to shops elsewhere (imports).
+                let per_unit = draw[i].min(e.retail_output_per_worker) as f64;
+                let r = f.workers as f64 * f.productivity as f64 * per_unit;
                 retail_revenue += r;
                 (r, 0.0, 0.0, 0.0)
             }
@@ -124,31 +127,34 @@ pub fn run(w: &mut World) {
     w.f.retail_draw = draw;
 }
 
-/// Commercial landlords renegotiate with their tenant firm; empty
-/// commercial space is offered at falling rents.
+/// Commercial landlords renegotiate with their tenant firm: they raise the
+/// rent while the tenant earns a healthy margin (capturing the location's
+/// rent) and cut it when the tenant loses money. Empty premises are offered
+/// at falling rents, toward what space nearby lets for.
 pub fn adjust_commercial_rents(w: &mut World) {
-    let adj = w.cfg.econ.rent_adjust;
+    let adj = w.econ.rent_adjust;
     for i in 0..w.p.len() {
         let u = w.p.land_use[i];
         if u != LandUse::Commercial && u != LandUse::Industrial {
             continue;
         }
-        let market = crate::econ::market_rent(w, i, u, w.p.units[i]);
         let fid = w.p.firm[i];
         let mut r = w.p.asking_rent[i];
         if fid == NONE {
+            let market = crate::econ::market_rent(w, i, u, w.p.units[i]);
             r *= 1.0 - adj;
+            r += (market - r).min(0.0) * 0.02;
         } else {
             let f = &w.firms[fid as usize];
-            let margin = f.profit / f.revenue.max(1.0);
-            if margin > 0.12 {
-                r *= 1.0 + adj * 0.25;
-            } else if margin < 0.0 {
-                r *= 1.0 - adj * 0.5;
+            if f.age_months >= 6 {
+                let margin = f.profit / f.revenue.max(1.0);
+                if margin > 0.15 {
+                    r *= 1.0 + 0.5 * adj;
+                } else if margin < 0.03 {
+                    r *= 1.0 - adj;
+                }
             }
         }
-        // Market reference: drift toward the bid-rent for these premises.
-        r += (market - r) * 0.02;
-        w.p.asking_rent[i] = r.max(1.0);
+        w.p.asking_rent[i] = r.max(w.index);
     }
 }

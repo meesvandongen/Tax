@@ -55,8 +55,12 @@ pub struct EconParams {
     pub subsistence: f32,
     /// Share of consumption spent at local shops (rest imported).
     pub local_spend_share: f32,
-    /// Commute cost per cell (~40 m) per month (time + money).
+    /// Commute cost per cell (~40 m) per month (time + money), in an
+    /// uncongested town.
     pub commute_cost_per_cell: f32,
+    /// Congestion: commuting costs scale with `1 + (households / congestion_scale)^congestion_elasticity`.
+    pub congestion_scale: f32,
+    pub congestion_elasticity: f32,
     /// Logit scale for location choice (money units).
     pub location_logit_scale: f32,
     pub search_samples: usize,
@@ -67,6 +71,12 @@ pub struct EconParams {
 
     // --- firms
     pub industry_price: f32,
+    /// Price elasticity of outside demand for the city's exports. The city
+    /// is not a price taker once it is large: the export price falls as
+    /// `(exports / export_market_size)^(-1/elasticity)` above that size.
+    pub export_demand_elasticity: f32,
+    /// Monthly real export volume the outside market absorbs at the base price.
+    pub export_market_size: f32,
     pub industry_output_per_worker: f32,
     pub retail_output_per_worker: f32,
     pub labour_elasticity: f32,
@@ -118,7 +128,7 @@ impl Default for EconParams {
             outside_growth: 0.005,
             outside_income_tax: 0.25,
             outside_return: 0.05,
-            immigration_rate: 0.015,
+            immigration_rate: 0.006,
             moving_cost_months: 2.0,
 
             skill_sigma: 0.45,
@@ -128,6 +138,8 @@ impl Default for EconParams {
             subsistence: 700.0,
             local_spend_share: 0.55,
             commute_cost_per_cell: 9.0,
+            congestion_scale: 20_000.0,
+            congestion_elasticity: 0.6,
             location_logit_scale: 120.0,
             search_samples: 10,
             relocation_rate: 0.03,
@@ -135,8 +147,10 @@ impl Default for EconParams {
             mean_lifetime_years: 45.0,
 
             industry_price: 1.0,
-            industry_output_per_worker: 6200.0,
-            retail_output_per_worker: 5200.0,
+            export_demand_elasticity: 3.0,
+            export_market_size: 60_000_000.0,
+            industry_output_per_worker: 5600.0,
+            retail_output_per_worker: 9000.0,
             labour_elasticity: 0.85,
             agglomeration: 0.06,
             pollution_per_worker: 1.0,
@@ -167,6 +181,28 @@ impl Default for EconParams {
             amenity_decay_cells: 3.0,
             access_decay_cells: 9.0,
         }
+    }
+}
+
+impl EconParams {
+    /// The parameters in money of the day: every money-denominated
+    /// quantity scaled by `index`, the level of outside productivity
+    /// (`(1 + outside_growth)^year`). Keeps relative prices (wages vs.
+    /// construction costs, rents vs. amenities) stable over long runs.
+    pub fn indexed(&self, index: f32) -> EconParams {
+        let mut e = self.clone();
+        e.outside_utility *= index;
+        e.base_wage *= index;
+        e.subsistence *= index;
+        e.commute_cost_per_cell *= index;
+        e.location_logit_scale *= index;
+        e.industry_output_per_worker *= index;
+        e.retail_output_per_worker *= index;
+        e.abatement_cost *= index;
+        e.cost_per_floor *= index;
+        e.demolition_cost *= index;
+        e.farm_rent *= index;
+        e
     }
 }
 

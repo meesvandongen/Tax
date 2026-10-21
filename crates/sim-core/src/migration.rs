@@ -8,28 +8,29 @@ use crate::types::*;
 use crate::world::{Event, World};
 
 /// A household's monthly money-metric utility here, including taxes.
-pub fn utility_here(w: &World, h: &Household) -> f32 {
+pub fn utility_here(w: &World, id: u32) -> f32 {
+    let h = &w.hh[id as usize];
     let commute = if h.job != NONE && h.home != NONE {
         crate::fields::commute_cost(w, h.home as usize, w.firms[h.job as usize].parcel as usize)
     } else {
         0.0
     };
-    let quality = if h.home != NONE { residential_quality(w, h.home as usize) } else { -600.0 };
+    let quality = if h.home != NONE { residential_quality(w, h.home as usize) } else { -600.0 * w.index };
     let net = h.income_labor + h.income_capital + h.income_transfer - h.taxes_paid;
     let effort = if h.job != NONE { h.effort_cost } else { 0.0 };
-    net - h.rent - commute + quality - effort
+    net - crate::housing::rent_paid(w, id) - commute + quality - effort
 }
 
 /// The same household's utility elsewhere: outside wages for its skill plus
 /// its (portable) capital income taxed at outside rates.
 pub fn utility_outside(w: &World, h: &Household) -> f32 {
     let labour = w.outside_utility(h.skill);
-    let capital = h.income_capital.max(0.0) * (1.0 - w.cfg.econ.outside_income_tax);
+    let capital = h.income_capital.max(0.0) * (1.0 - w.econ.outside_income_tax);
     labour + capital
 }
 
 pub fn new_household(w: &mut World, skill: f32) -> Household {
-    let e = &w.cfg.econ;
+    let e = &w.econ;
     let wealth_draw = w.rng.lognormal(0.0, 1.1);
     let cash = (e.base_wage as f64 * skill as f64 * 4.0 * wealth_draw).max(500.0);
     Household {
@@ -59,9 +60,9 @@ pub fn new_household(w: &mut World, skill: f32) -> Household {
 }
 
 pub fn immigration(w: &mut World) {
-    let e = w.cfg.econ.clone();
+    let e = w.econ.clone();
     let vacant_units: u32 =
-        (0..w.p.len()).filter(|&i| w.p.land_use[i] == LandUse::Residential).map(|i| w.p.vacant_units(i) as u32).sum();
+        (0..w.p.len()).filter(|&i| crate::housing::lettable(w, i)).map(|i| w.p.vacant_units(i) as u32).sum();
     let openings: u32 =
         w.firms.iter().filter(|f| f.alive).map(|f| f.desired_workers.saturating_sub(f.workers) as u32).sum();
     // City conditions as an outsider perceives them.
@@ -83,9 +84,12 @@ pub fn immigration(w: &mut World) {
             0.0
         }
     };
-    let commute = e.commute_cost_per_cell * 8.0;
-    let div = w.gov.dividend_per_hh as f32;
-    let attempts = (w.n_alive_hh as f32 * e.immigration_rate).max(4.0) as usize;
+    let typical_trip = w.history.last().map(|m| m.avg_commute).unwrap_or(8.0).max(4.0);
+    let commute = e.commute_cost_per_cell * typical_trip;
+    let div = (w.gov.dividend_per_hh + w.gov.rebate_per_hh) as f32;
+    // Prospective movers: a share of the population's size (word of mouth)
+    // plus people answering advertised vacancies.
+    let attempts = ((w.n_alive_hh as f32 * e.immigration_rate).max(4.0) + 0.25 * vacant_units as f32) as usize;
     // Newcomers need somewhere to live; the rest form latent demand that
     // landlords and developers can see.
     let cap = vacant_units as usize + (openings as usize / 4).min(8);
@@ -95,16 +99,22 @@ pub fn immigration(w: &mut World) {
         let skill = w.rng.lognormal(0.0, e.skill_sigma as f64) as f32;
         let gross = wage_rate * skill;
         let tax = w.taxes.income_monthly(gross as f64, 0.0) as f32 + w.taxes.head_monthly() as f32;
-        let expected = (1.0 - unemployment) * (gross - tax) + div - rent - commute + avg_quality;
+        // (Working costs effort: the median newcomer's disutility of work.)
+        let effort = 270.0 * w.index;
+        let expected = (1.0 - unemployment) * (gross - tax - effort) + div - rent - commute + avg_quality;
         let outside = w.outside_utility(skill);
         let moving = e.moving_cost_months * outside / 24.0;
         let noise = e.location_logit_scale * 2.0 * w.rng.gumbel() as f32;
         if expected + noise > outside + moving {
+            let h = new_household(w, skill);
+            // Only those who could rent a typical vacant home actually move.
+            if rent > 0.5 * crate::housing::budget(w, &h) {
+                continue;
+            }
             if arrived >= cap {
                 latent += 1;
                 continue;
             }
-            let h = new_household(w, skill);
             w.add_household(h);
             arrived += 1;
             w.flows.immigrants += 1;
@@ -117,7 +127,7 @@ pub fn immigration(w: &mut World) {
 
 fn median_vacant_rent(w: &World) -> f32 {
     let mut rents: Vec<f32> = (0..w.p.len())
-        .filter(|&i| w.p.land_use[i] == LandUse::Residential && w.p.vacant_units(i) > 0)
+        .filter(|&i| crate::housing::lettable(w, i) && w.p.vacant_units(i) > 0)
         .map(|i| w.p.asking_rent[i])
         .collect();
     if rents.is_empty() {
@@ -136,13 +146,13 @@ pub fn edge_cell(w: &World) -> u32 {
 }
 
 pub fn emigration(w: &mut World) {
-    let e = w.cfg.econ.clone();
+    let e = w.econ.clone();
     let mut leaving: Vec<u32> = Vec::new();
     for id in 0..w.hh.len() {
         if !w.hh[id].alive {
             continue;
         }
-        let here = utility_here(w, &w.hh[id]);
+        let here = utility_here(w, id as u32);
         let out = utility_outside(w, &w.hh[id]);
         let h = &mut w.hh[id];
         h.utility = here;
@@ -163,11 +173,42 @@ pub fn emigration(w: &mut World) {
             leaving.push(id as u32);
         }
     }
+    // Emigrants sell their property and businesses to outside capital and
+    // take the proceeds with them.
+    if !leaving.is_empty() {
+        let mut parcels: Vec<Vec<usize>> = vec![Vec::new(); w.hh.len()];
+        for i in 0..w.p.len() {
+            if let Owner::Hh(id) = w.p.owner[i] {
+                parcels[id as usize].push(i);
+            }
+        }
+        for &id in &leaving {
+            for &i in &parcels[id as usize] {
+                crate::land::sell_on_departure(w, i);
+            }
+        }
+        let mut is_leaving = vec![false; w.hh.len()];
+        for &id in &leaving {
+            is_leaving[id as usize] = true;
+        }
+        let r = w.econ.outside_return as f64 + 0.05;
+        for fid in 0..w.firms.len() {
+            let f = &w.firms[fid];
+            if let Owner::Hh(id) = f.owner {
+                if f.alive && is_leaving[id as usize] {
+                    let equity = f.cash.max(0.0) + f.profit.max(0.0) as f64 * 12.0 / r;
+                    w.firms[fid].owner = Owner::Absentee;
+                    w.hh[id as usize].cash += equity;
+                    w.flows.absentee_income -= equity;
+                }
+            }
+        }
+    }
     for id in leaving {
         let (cash, wealthy, cell) = {
             let h = &w.hh[id as usize];
             let cell = if h.home != NONE { h.home } else { w.center as u32 };
-            (h.cash.max(0.0), h.wealth > 1_000_000.0, cell)
+            (h.cash.max(0.0), h.wealth > 1_000_000.0 * w.index as f64, cell)
         };
         w.flows.emigrants += 1;
         w.flows.capital_flight += cash;
@@ -183,8 +224,8 @@ pub fn emigration(w: &mut World) {
 /// id) with the estate net of estate tax, a fresh job search and a skill that
 /// regresses toward the mean.
 pub fn demographics(w: &mut World) {
-    let p_death = 1.0 / (w.cfg.econ.mean_lifetime_years as f64 * 12.0);
-    let sigma = w.cfg.econ.skill_sigma as f64;
+    let p_death = 1.0 / (w.econ.mean_lifetime_years as f64 * 12.0);
+    let sigma = w.econ.skill_sigma as f64;
     for id in 0..w.hh.len() {
         if !w.hh[id].alive {
             continue;

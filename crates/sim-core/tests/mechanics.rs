@@ -130,3 +130,51 @@ fn every_preset_runs() {
         assert!(sim.world.history.last().unwrap().households > 0, "{name}");
     }
 }
+
+/// A city grown for decades must pass every plausibility check in
+/// `audit::check` (money is not created from nothing, markets clear,
+/// bookkeeping is consistent), checked once a year.
+#[test]
+fn grown_city_passes_audit() {
+    let cfg = SimConfig { seed: 7, width: 96, height: 96, ..Default::default() };
+    let mut sim = Simulation::new(cfg);
+    let mut failures = Vec::new();
+    for year in 1..=60 {
+        sim.run(12);
+        for issue in sim_core::audit::check(&sim.world) {
+            failures.push(format!("y{year}: {issue}"));
+        }
+    }
+    assert!(failures.is_empty(), "audit failures:\n{}", failures.join("\n"));
+    assert!(sim.world.history.last().unwrap().households > 1000, "the city should grow");
+}
+
+/// Land without street access can only be farmed, so it is assessed as
+/// farmland: a land tax cannot exceed what its owner could earn on it.
+#[test]
+fn unserviced_land_is_assessed_as_farmland() {
+    let sim = grown_city(120);
+    let w = &sim.world;
+    let inv = w.absentee_investor();
+    let mut checked = 0;
+    for i in 0..w.p.len() {
+        if w.p.in_city[i] && !w.p.road_access[i] && w.p.land_use[i] == LandUse::Wild {
+            let farm = sim_core::land::farm_value(w, i, &inv) as f32;
+            assert!(w.p.assessed_land[i] <= 1.35 * farm, "cell {i}: {} vs farm {farm}", w.p.assessed_land[i]);
+            checked += 1;
+        }
+    }
+    assert!(checked > 0);
+}
+
+/// A shop worker can only serve so many customers: spending beyond that
+/// goes elsewhere instead of becoming unbounded revenue per worker.
+#[test]
+fn retail_sales_per_worker_are_bounded() {
+    let sim = grown_city(120);
+    let w = &sim.world;
+    for f in w.firms.iter().filter(|f| f.alive && f.sector == sim_core::types::Sector::Retail && f.workers > 0) {
+        let cap = w.econ.retail_output_per_worker * f.productivity * f.workers as f32;
+        assert!(f.revenue <= cap * 1.001, "revenue {} above capacity {cap}", f.revenue);
+    }
+}

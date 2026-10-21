@@ -73,16 +73,16 @@ impl TaxSpec {
             TaxSpec::Income { brackets, include_capital } => {
                 Box::new(income::IncomeTax::new(brackets, include_capital))
             }
-            TaxSpec::Wealth { threshold, rate } => Box::new(wealth::WealthTax { threshold, rate }),
+            TaxSpec::Wealth { threshold, rate } => Box::new(wealth::WealthTax { threshold, rate, index: 1.0 }),
             TaxSpec::Sales { rate } => Box::new(sales::SalesTax { rate }),
             TaxSpec::Corporate { rate } => Box::new(corporate::CorporateTax { rate }),
             TaxSpec::Payroll { rate } => Box::new(payroll::PayrollTax { rate }),
             TaxSpec::Transfer { rate } => Box::new(transfer::TransferTax { rate }),
             TaxSpec::Harberger { rate } => Box::new(harberger::HarbergerTax { rate }),
-            TaxSpec::Pollution { per_unit } => Box::new(pollution::PollutionTax { per_unit }),
+            TaxSpec::Pollution { per_unit } => Box::new(pollution::PollutionTax { per_unit, index: 1.0 }),
             TaxSpec::Vacancy { rate } => Box::new(vacancy::VacancyTax { rate }),
-            TaxSpec::Estate { threshold, rate } => Box::new(estate::EstateTax { threshold, rate }),
-            TaxSpec::Head { amount } => Box::new(head::HeadTax { amount }),
+            TaxSpec::Estate { threshold, rate } => Box::new(estate::EstateTax { threshold, rate, index: 1.0 }),
+            TaxSpec::Head { amount } => Box::new(head::HeadTax { amount, index: 1.0 }),
         }
     }
 
@@ -109,6 +109,9 @@ impl TaxSpec {
 /// Amounts are *annual* unless stated otherwise.
 pub trait TaxModule: Send + Sync {
     fn spec(&self) -> TaxSpec;
+    /// Index money-denominated parameters (thresholds, lump sums) to the
+    /// price level `index` (1 at the start). Rates are unaffected.
+    fn set_index(&mut self, _index: f64) {}
     /// Annual tax on annual labour and capital income.
     fn income(&self, _labor: f64, _capital: f64) -> f64 {
         0.0
@@ -188,6 +191,12 @@ impl TaxSystem {
 
     pub fn specs(&self) -> &[TaxSpec] {
         &self.specs
+    }
+
+    pub fn set_index(&mut self, index: f64) {
+        for m in self.modules.iter_mut() {
+            m.set_index(index);
+        }
     }
 
     pub fn reset_month(&mut self) {

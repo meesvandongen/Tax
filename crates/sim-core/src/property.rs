@@ -3,9 +3,9 @@
 //! if the extra rent is worth more than the upkeep *after* the extra
 //! building tax that a better-kept building attracts.
 
-use crate::econ::{construction_cost, market_rent};
+use crate::econ::{self, construction_cost};
 use crate::types::*;
-use crate::world::World;
+use crate::world::{Event, World};
 
 pub fn idle_share(w: &World, i: usize) -> f64 {
     let p = &w.p;
@@ -30,10 +30,7 @@ pub fn taxable(w: &World, i: usize) -> bool {
 }
 
 pub fn owner_costs(w: &mut World) {
-    let e = w.cfg.econ.clone();
-    // Taxes that grow with building value (building tax, self-assessed tax).
-    let tau_b = w.taxes.estimate(|m| m.property(0.0, 1.0)) + w.taxes.harberger_rate();
-    let h = w.taxes.harberger_rate();
+    let e = w.econ.clone();
     let mut deferred = 0u32;
     for i in 0..w.p.len() {
         let owner = w.p.owner[i];
@@ -43,9 +40,27 @@ pub fn owner_costs(w: &mut World) {
             let bldg = w.p.assessed_bldg[i] as f64;
             let declared = w.p.declared[i] as f64;
             let idle = idle_share(w, i);
-            let tax = w.taxes.levy(|m| {
+            let bill = |m: &dyn crate::tax::TaxModule| {
                 (m.property(land, bldg) + m.vacancy(land + bldg, idle) + m.harberger_rate() * declared) / 12.0
-            });
+            };
+            let due = w.taxes.estimate(bill);
+            // Outside owners have no other stake in the city: once a parcel
+            // is worth nothing net of its future taxes they stop paying, and
+            // after a year of arrears the city takes the title.
+            if owner == Owner::Absentee && due > 0.0 && (i as u64 + w.tick) % 6 == 0 {
+                let inv = w.absentee_investor();
+                let worthless = econ::valuation(w, i, &inv) < due;
+                w.p.arrears[i] = if worthless { w.p.arrears[i].max(1) } else { 0 };
+            }
+            let tax = if w.p.arrears[i] > 0 {
+                w.p.arrears[i] += 1;
+                if w.p.arrears[i] > 12 {
+                    foreclose(w, i);
+                }
+                0.0
+            } else {
+                w.taxes.levy(bill)
+            };
             w.p.tax_last[i] = tax as f32;
             if tax > 0.0 {
                 w.gov.cash += tax;
@@ -70,15 +85,21 @@ pub fn owner_costs(w: &mut World) {
             let cost = construction_cost(w, i, u, w.p.floors[i]);
             let upkeep = e.maintenance_rate as f64 * cost;
             let inv = w.investor_for(owner);
-            let gross = market_rent(w, i, u, w.p.units[i]) as f64 * w.p.occupied[i].max(w.p.units[i] / 2) as f64;
-            // PV gain from preventing one month of depreciation.
-            let annual_benefit = 12.0 * 0.4 * gross * (1.0 - inv.t_inc) - tau_b * 0.7 * cost;
-            let pv_gain = e.depreciation as f64 * annual_benefit / (inv.r - inv.g + h + inv.w).max(0.01);
+            // Value gained by keeping the building up this month rather than
+            // letting it slip: the owner's own after-tax valuation at both
+            // conditions (so rent quality, taxes on the better building and
+            // the point where nobody will rent it any more all count).
+            let c = w.p.condition[i];
+            let kept = (c + 0.25 * e.depreciation).min(1.0);
+            let slipped = (c - e.depreciation).max(0.0);
+            let pv_gain = econ::building_in_condition_value(w, i, &inv, kept)
+                - econ::building_in_condition_value(w, i, &inv, slipped);
             let can_pay = w.owner_cash(owner) > upkeep;
             if pv_gain >= upkeep && can_pay {
                 match owner {
                     Owner::Hh(id) => w.hh[id as usize].cash -= upkeep,
-                    _ => w.flows.absentee_income -= upkeep,
+                    Owner::Gov => w.gov.cash -= upkeep,
+                    Owner::Absentee => w.flows.absentee_income -= upkeep,
                 }
                 w.flows.construction_spend += upkeep;
                 w.p.condition[i] = (w.p.condition[i] + 0.25 * e.depreciation).min(1.0);
@@ -101,4 +122,15 @@ pub fn owner_costs(w: &mut World) {
         }
     }
     w.flows.deferred_maintenance = deferred;
+}
+
+/// Tax foreclosure: title passes to the city, which auctions the parcel
+/// (see `land::market`). The defaulting owner's mortgage is written off.
+pub fn foreclose(w: &mut World, i: usize) {
+    w.p.owner[i] = Owner::Gov;
+    w.p.mortgage[i] = 0.0;
+    w.p.arrears[i] = 0;
+    w.p.declared[i] = 0.0;
+    w.flows.foreclosures += 1;
+    w.push_event(Event::Foreclosure { cell: i as u32 });
 }

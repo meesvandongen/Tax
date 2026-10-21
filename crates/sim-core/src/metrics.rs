@@ -50,9 +50,11 @@ pub struct Metrics {
     pub derelict: u32,
     pub sales: u32,
     pub forced_sales: u32,
+    pub foreclosures: u32,
     pub harberger_buyouts: u32,
     pub buildings_started: u32,
     pub buildings_completed: u32,
+    pub renovations: u32,
     // --- environment
     pub green_cover: f32,
     pub forest_cells: u32,
@@ -184,7 +186,7 @@ pub fn compute(w: &World) -> Metrics {
     let mut land_cells = 0u32;
     let mut vacant_units = 0u32;
     let mut farm_rent_total = 0.0f64;
-    let r = w.cfg.econ.outside_return as f64;
+    let r = w.econ.outside_return as f64;
     for i in 0..p.len() {
         let u = p.land_use[i];
         if u != LandUse::Water {
@@ -208,7 +210,7 @@ pub fn compute(w: &World) -> Metrics {
                 m.derelict += 1;
             }
         }
-        if u == LandUse::Residential {
+        if u == LandUse::Residential && crate::housing::lettable(w, i) {
             m.housing_units += p.units[i] as u32;
             vacant_units += p.vacant_units(i) as u32;
             if p.occupied[i] > 0 {
@@ -225,7 +227,7 @@ pub fn compute(w: &World) -> Metrics {
                 Owner::Hh(_) => land_resident += lv,
                 _ => {}
             }
-            farm_rent_total += 12.0 * w.cfg.econ.farm_rent as f64 * (0.4 + w.terrain.fertility[i] as f64);
+            farm_rent_total += 12.0 * w.econ.farm_rent as f64 * (0.4 + w.terrain.fertility[i] as f64);
         }
         if matches!(u, LandUse::Wild | LandUse::Farm | LandUse::Vacant) && p.road_access[i] {
             let urban_nb = dims.ring(i, 1).iter().filter(|&&j| p.land_use[j].is_building()).count();
@@ -262,9 +264,11 @@ pub fn compute(w: &World) -> Metrics {
     m.firms_closed = f.firms_closed;
     m.sales = f.sales;
     m.forced_sales = f.forced_sales;
+    m.foreclosures = f.foreclosures;
     m.harberger_buyouts = f.harberger_buyouts;
     m.buildings_started = f.buildings_started;
     m.buildings_completed = f.buildings_completed;
+    m.renovations = f.renovations;
     m.emissions = f.emissions;
     m.co2_index = (f.emissions + commute_sum * 0.05) as f32;
     m.deterred_workers = f.deterred_workers;

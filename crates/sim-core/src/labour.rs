@@ -33,9 +33,15 @@ pub fn roster(w: &World) -> Roster {
     Roster { offsets: counts, members }
 }
 
+/// Sales a unit of shop capacity at `i` can make per month: its share of
+/// local spending (Huff), capped by what one worker can serve.
+pub fn retail_sales_per_unit(w: &World, i: usize) -> f32 {
+    w.f.retail_draw[i].min(w.econ.retail_output_per_worker)
+}
+
 /// Revenue a worker of unit skill would add at the margin, per month.
 pub fn industry_marginal_product(w: &World, f: &Firm) -> f32 {
-    let e = &w.cfg.econ;
+    let e = &w.econ;
     let i = f.parcel as usize;
     let a = industry_tfp(w, f, i);
     let s = f.skill_sum.max(1.0);
@@ -43,12 +49,10 @@ pub fn industry_marginal_product(w: &World, f: &Firm) -> f32 {
 }
 
 pub fn industry_tfp(w: &World, f: &Firm, i: usize) -> f32 {
-    let e = &w.cfg.econ;
-    let growth = (1.0 + e.outside_growth).powf(w.year());
+    let e = &w.econ;
     e.industry_output_per_worker
         * e.industry_price
         * w.cycle
-        * growth
         * f.productivity
         * (1.0 + e.agglomeration * (1.0 + w.f.industry_access[i]).ln())
 }
@@ -72,16 +76,20 @@ pub fn firm_decisions(w: &mut World) {
             Sector::Industry => {
                 let mp = industry_marginal_product(w, f) * avg_skill;
                 // Emission tax per worker at the chosen intensity also counts.
-                let em_cost = w
-                    .taxes
-                    .estimate(|m| m.emission(w.cfg.econ.pollution_per_worker as f64 * f.emission_intensity as f64))
-                    as f32;
+                let em_cost =
+                    w.taxes.estimate(|m| m.emission(w.econ.pollution_per_worker as f64 * f.emission_intensity as f64))
+                        as f32;
                 let margin = mp - wage_cost - em_cost;
                 step_toward(workers, margin / wage_cost.max(1.0))
             }
             Sector::Retail => {
                 let rev_per_worker =
-                    if workers > 1 { f.revenue / workers as f32 } else { f.productivity * w.f.retail_draw[i] };
+                    // (A shop without a month of trading yet goes by the local draw.)
+                    if workers > 1 && f.age_months > 0 {
+                        f.revenue / workers as f32
+                    } else {
+                        f.productivity * retail_sales_per_unit(w, i)
+                    };
                 let margin = rev_per_worker * 0.92 - wage_cost;
                 step_toward(workers, margin / wage_cost.max(1.0))
             }
@@ -90,7 +98,7 @@ pub fn firm_decisions(w: &mut World) {
         let desired = desired.min(capacity).max(if f.sector == Sector::Public { 0 } else { 1 });
         let profitable_margin = match f.sector {
             Sector::Industry => industry_marginal_product(w, f) * avg_skill > wage_cost * 1.03,
-            Sector::Retail => workers == 0 || f.revenue / workers.max(1) as f32 > wage_cost * 1.03,
+            Sector::Retail => workers == 0 || f.age_months == 0 || f.revenue / workers.max(1) as f32 > wage_cost * 1.03,
             Sector::Public => false,
         };
         let f = &mut w.firms[id];
@@ -113,7 +121,7 @@ pub fn firm_decisions(w: &mut World) {
         if !profitable_margin && f.workers > 0 && f.months_loss > 0 {
             f.wage_rate *= 0.995;
         }
-        f.wage_rate = f.wage_rate.clamp(0.35 * w.cfg.econ.base_wage, 6.0 * w.cfg.econ.base_wage);
+        f.wage_rate = f.wage_rate.clamp(0.35 * w.econ.base_wage, 6.0 * w.econ.base_wage);
     }
 
     // Layoffs where workforce exceeds desired.
@@ -188,7 +196,7 @@ pub fn work_gain(w: &World, h: &Household, gross: f32, commute: f32) -> (f32, f3
 }
 
 pub fn matching(w: &mut World) {
-    let k = w.cfg.econ.search_samples.max(1);
+    let k = w.econ.search_samples.max(1);
     let mut openings: Vec<u32> = Vec::new();
     for (id, f) in w.firms.iter().enumerate() {
         if f.alive && f.desired_workers > f.workers {
@@ -214,7 +222,7 @@ pub fn matching(w: &mut World) {
         let home = if h.home != NONE { Some(h.home as usize) } else { None };
         let commute_to = |w: &World, parcel: usize| match home {
             Some(hm) => commute_cost(w, hm, parcel),
-            None => w.cfg.econ.commute_cost_per_cell * 10.0,
+            None => w.econ.commute_cost_per_cell * 10.0,
         };
         // value of current situation
         let current = if h.job != NONE {
@@ -238,7 +246,7 @@ pub fn matching(w: &mut World) {
             }
         }
         if let Some((fid, v, v_no_tax)) = best {
-            let threshold = if h.job == NONE { 0.0 } else { current + 80.0 };
+            let threshold = if h.job == NONE { 0.0 } else { current + 80.0 * w.index };
             if v > threshold {
                 if h.job != NONE {
                     fire(w, hid);
@@ -273,7 +281,7 @@ impl World {
             s += f.wage_rate * f.workers as f32;
             n += f.workers as f32;
         }
-        self.wage_cache = if n > 0.0 { s / n } else { self.cfg.econ.base_wage };
+        self.wage_cache = if n > 0.0 { s / n } else { self.econ.base_wage };
     }
     pub fn gov_welfare_level(&self) -> f32 {
         self.gov.welfare_level as f32

@@ -106,6 +106,9 @@ pub struct Parcels {
     /// Inside the municipal boundary (within a few cells of urban land);
     /// only these parcels are in the city's tax base.
     pub in_city: Vec<bool>,
+    /// Months of unpaid property tax (an outside owner who finds the parcel
+    /// worth less than its taxes stops paying; the city then forecloses).
+    pub arrears: Vec<u16>,
 }
 
 impl Parcels {
@@ -135,6 +138,7 @@ impl Parcels {
             months_since_sale: vec![0; n],
             mortgage: vec![0.0; n],
             in_city: vec![false; n],
+            arrears: vec![0; n],
         }
     }
     pub fn len(&self) -> usize {

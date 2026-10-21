@@ -12,19 +12,22 @@ pub fn transfers(w: &mut World) {
     let div = w.gov.dividend_per_hh + w.gov.rebate_per_hh;
     let rebate_share = if div > 0.0 { w.gov.rebate_per_hh / div } else { 0.0 };
     let level = w.gov.welfare_level;
+    // Means-tested top-up with 50% withdrawal; extra for the unhoused. The
+    // programme never pays out more than its budget.
+    let benefit = |h: &Household| {
+        let own = (h.income_labor + h.income_capital) as f64;
+        (level - 0.5 * own).max(0.0) + if h.home == NONE { 0.5 * level } else { 0.0 }
+    };
+    let claims: f64 = w.hh.iter().filter(|h| h.alive).map(benefit).sum();
+    w.gov.welfare_paid_budget = w.gov.welfare_budget;
+    let scale = if claims > w.gov.welfare_budget { w.gov.welfare_budget.max(0.0) / claims } else { 1.0 };
     let mut paid_div = 0.0;
     let mut paid_welfare = 0.0;
     for h in w.hh.iter_mut().filter(|h| h.alive) {
-        let mut t = div;
-        // Means-tested top-up with 50% withdrawal; extra for the unhoused.
-        let own = (h.income_labor + h.income_capital) as f64;
-        let mut benefit = (level - 0.5 * own).max(0.0);
-        if h.home == NONE {
-            benefit += 0.5 * level;
-        }
-        t += benefit;
+        let b = benefit(h) * scale;
+        let t = div + b;
         paid_div += div;
-        paid_welfare += benefit;
+        paid_welfare += b;
         h.cash += t;
         h.income_transfer = t as f32;
     }
@@ -50,9 +53,14 @@ pub fn budget(w: &mut World) {
         envelope *= 0.85;
     }
     if debt > 0.0 {
-        let interest = debt * w.cfg.econ.outside_return as f64 / 12.0;
+        let interest = debt * w.econ.outside_return as f64 / 12.0;
         w.gov.cash -= interest;
         w.gov.spend_interest += interest;
+    } else {
+        // Reserves are deposited and earn the deposit rate.
+        let interest = w.gov.cash * w.econ.deposit_return as f64 / 12.0;
+        w.gov.cash += interest;
+        w.flows.interest_in += interest;
     }
     let share = |x: f32| envelope * x as f64 / total_share;
 
@@ -62,13 +70,35 @@ pub fn budget(w: &mut World) {
     let n = w.n_alive_hh.max(1) as f64;
     w.gov.dividend_per_hh = share(s.dividend) / n;
     let surplus = (w.gov.cash - 12.0 * w.gov.revenue_ema.max(0.0)).max(0.0);
-    w.gov.rebate_per_hh = surplus / 36.0 / n;
+    w.gov.rebate_per_hh = surplus / 12.0 / n;
     w.gov.starts_ema = 0.95 * w.gov.starts_ema + 0.05 * w.flows.buildings_started as f64;
 
-    // Welfare level: budget spread over likely recipients.
-    let poor = w.hh.iter().filter(|h| h.alive && (h.income_labor + h.income_capital) < 1500.0).count().max(1) as f64;
+    // Welfare level: the highest top-up (with its 50% withdrawal and the
+    // extra for the unhoused) that the welfare budget can pay for.
+    let ix = w.index as f64;
     w.gov.welfare_budget = share(s.welfare);
-    w.gov.welfare_level = (w.gov.welfare_budget / poor).min(1800.0);
+    let incomes: Vec<(f64, bool)> =
+        w.hh.iter().filter(|h| h.alive).map(|h| ((h.income_labor + h.income_capital) as f64, h.home == NONE)).collect();
+    let payout = |level: f64| -> f64 {
+        incomes
+            .iter()
+            .map(|&(own, unhoused)| (level - 0.5 * own).max(0.0) + if unhoused { 0.5 * level } else { 0.0 })
+            .sum()
+    };
+    let (mut lo, mut hi) = (0.0, 1800.0 * ix);
+    if payout(hi) <= w.gov.welfare_budget {
+        lo = hi;
+    } else {
+        for _ in 0..24 {
+            let mid = 0.5 * (lo + hi);
+            if payout(mid) <= w.gov.welfare_budget {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+    }
+    w.gov.welfare_level = lo;
 
     // Public services: staff civic buildings up to the budget.
     w.gov.service_budget = share(s.services);
@@ -81,13 +111,29 @@ pub fn budget(w: &mut World) {
     let wage = w.market_wage_rate() as f64 * 1.1;
     let affordable = w.gov.service_budget / wage.max(1.0);
     w.gov.public_staffing = if public_capacity > 0.0 { (affordable / public_capacity).min(1.0) } else { 0.0 };
-    if affordable > public_capacity * 1.15 {
+    // Build a civic building when the budget could staff more than the
+    // existing and planned buildings hold *and* residents need more staff
+    // than that (`SERVICE_RATIO` per household), and only if it can be paid
+    // for without breaking the debt limit.
+    let planned: f64 = (0..w.p.len())
+        .filter(|&i| w.p.land_use[i] == LandUse::Construction && w.p.target_use[i] == LandUse::Civic)
+        .map(|i| econ::units_for(w, LandUse::Civic, w.p.floors[i]) as f64)
+        .sum();
+    let needed = crate::fields::SERVICE_RATIO as f64 * n;
+    let capacity = public_capacity + planned;
+    let debt_room = s.max_debt_to_revenue as f64 * 12.0 * w.gov.revenue_ema.max(0.0) + w.gov.cash;
+    if affordable > capacity * 1.15
+        && needed > capacity
+        && debt_room > 4.0 * econ::construction_cost(w, w.center, LandUse::Civic, 2)
+    {
         build_civic(w);
     }
 
-    // Infrastructure and parks are funded from accumulating funds.
-    w.gov.infra_budget += share(s.infrastructure);
-    w.gov.park_budget += share(s.parks);
+    // Infrastructure and parks are funded from accumulating funds, which
+    // are capped at a few years of allocations: money no project needs
+    // stays in the reserves (and is eventually rebated).
+    w.gov.infra_budget = (w.gov.infra_budget + share(s.infrastructure)).min(36.0 * share(s.infrastructure));
+    w.gov.park_budget = (w.gov.park_budget + share(s.parks)).min(36.0 * share(s.parks));
     build_roads(w);
     maintain_roads(w);
     build_park(w);
@@ -95,7 +141,7 @@ pub fn budget(w: &mut World) {
 
 fn maintain_roads(w: &mut World) {
     let roads = w.p.land_use.iter().filter(|&&u| u == LandUse::Road).count() as f64;
-    let cost = roads * 60.0;
+    let cost = roads * 60.0 * w.index as f64;
     let paid = cost.min(w.gov.infra_budget.max(0.0));
     w.gov.infra_budget -= paid;
     w.gov.cash -= paid;
@@ -107,49 +153,51 @@ const ROAD_COST: f64 = 40_000.0;
 const BRIDGE_COST: f64 = 400_000.0;
 
 fn build_roads(w: &mut World) {
-    if w.gov.infra_budget < ROAD_COST {
+    let ix = w.index as f64;
+    if w.gov.infra_budget < ROAD_COST * ix {
         return;
     }
     // Plan land supply: extend the network only while serviced, idle land
     // is short of about two years of construction.
+    // (Only land a developer could build on at a profit counts.)
+    let inv = w.absentee_investor();
     let serviced_idle = (0..w.p.len())
-        .filter(|&i| w.p.road_access[i] && matches!(w.p.land_use[i], LandUse::Wild | LandUse::Farm | LandUse::Vacant))
+        .filter(|&i| {
+            w.p.road_access[i]
+                && matches!(w.p.land_use[i], LandUse::Wild | LandUse::Farm | LandUse::Vacant)
+                && econ::vacant_site_value(w, i, &inv) > 0.0
+        })
         .count() as f64;
     if serviced_idle > 40.0 + 24.0 * w.gov.starts_ema {
         return;
     }
     let dims = w.dims;
-    let (cx, cy) = dims.xy(w.center);
-    let block = 5usize;
-    // Frontier: buildable cells on the block grid next to an existing road.
+    // Frontier: buildable cells on the street grid next to an existing road.
     let mut frontier: Vec<(usize, f64)> = Vec::new();
     for i in 0..dims.len() {
         let u = w.p.land_use[i];
         if !matches!(u, LandUse::Wild | LandUse::Farm | LandUse::Vacant | LandUse::Water) {
             continue;
         }
-        let (x, y) = dims.xy(i);
-        let on_grid = (x + block - cx % block) % block == 0 || (y + block - cy % block) % block == 0;
-        if !on_grid || !dims.neighbors4(i).any(|j| w.p.land_use[j] == LandUse::Road) {
+        if !on_street_grid(w, i) || !dims.neighbors4(i).any(|j| w.p.land_use[j] == LandUse::Road) {
             continue;
         }
         // Demand: the rent potential of land the road would open up.
-        let unlock: f64 = dims
-            .ring(i, 1)
-            .iter()
-            .filter(|&&j| !w.p.road_access[j] && w.p.land_use[j].is_developable() && !w.terrain.water[j])
-            .map(|&j| w.f.rent_res[j].max(w.f.rent_com[j] * 0.3) as f64)
+        let unlock: f64 = access_cells(dims, i)
+            .into_iter()
+            .filter(|&j| !w.p.road_access[j] && w.p.land_use[j].is_developable() && !w.terrain.water[j])
+            .map(|j| w.f.rent_res[j].max(w.f.rent_com[j] * 0.3) as f64)
             .sum();
         if unlock <= 0.0 {
             continue;
         }
-        let cost = if u == LandUse::Water { BRIDGE_COST } else { ROAD_COST + w.p.assessed_land[i] as f64 };
+        let cost = if u == LandUse::Water { BRIDGE_COST * ix } else { ROAD_COST * ix + w.p.assessed_land[i] as f64 };
         frontier.push((i, unlock / cost));
     }
     frontier.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
     for (i, _) in frontier.into_iter().take(6) {
         let water = w.p.land_use[i] == LandUse::Water;
-        let cost = if water { BRIDGE_COST } else { ROAD_COST };
+        let cost = if water { BRIDGE_COST * ix } else { ROAD_COST * ix };
         if w.gov.infra_budget < cost {
             break;
         }
@@ -167,13 +215,50 @@ fn build_roads(w: &mut World) {
     }
 }
 
+/// Spacing of the street grid (cells). Blocks are `STREET_BLOCK - 1` cells
+/// wide, so every cell of a block lies within `ACCESS_REACH` of a street.
+pub const STREET_BLOCK: usize = 5;
+pub const ACCESS_REACH: usize = 2;
+
+/// Whether `i` lies on a planned street line. These cells are the public
+/// right-of-way: nothing private is built on them, so the network can
+/// always be extended along them.
+pub fn on_street_grid(w: &World, i: usize) -> bool {
+    let (cx, cy) = w.dims.xy(w.center);
+    let (x, y) = w.dims.xy(i);
+    let b = STREET_BLOCK;
+    (x + b - cx % b) % b == 0 || (y + b - cy % b) % b == 0
+}
+
+/// Cells a street at `i` serves: up to `ACCESS_REACH` cells along each axis
+/// (lots fronting the street, including block interiors).
+pub fn access_cells(dims: crate::grid::Dims, i: usize) -> Vec<usize> {
+    let (x, y) = dims.xy(i);
+    let mut v = Vec::with_capacity(4 * ACCESS_REACH);
+    for d in 1..=ACCESS_REACH {
+        if x >= d {
+            v.push(dims.idx(x - d, y));
+        }
+        if x + d < dims.w {
+            v.push(dims.idx(x + d, y));
+        }
+        if y >= d {
+            v.push(dims.idx(x, y - d));
+        }
+        if y + d < dims.h {
+            v.push(dims.idx(x, y + d));
+        }
+    }
+    v
+}
+
 pub fn set_road(w: &mut World, i: usize) {
     w.p.land_use[i] = LandUse::Road;
     w.p.owner[i] = Owner::Gov;
     w.p.nature[i] = 0.0;
     w.p.units[i] = 0;
     w.p.road_access[i] = true;
-    for j in w.dims.neighbors4(i).collect::<Vec<_>>() {
+    for j in access_cells(w.dims, i) {
         w.p.road_access[j] = true;
     }
 }
@@ -186,12 +271,13 @@ fn build_park(w: &mut World) {
     let mut best: Option<(usize, f64)> = None;
     for i in 0..n {
         let u = w.p.land_use[i];
-        if !matches!(u, LandUse::Wild | LandUse::Farm | LandUse::Vacant) || !w.p.road_access[i] {
+        if !matches!(u, LandUse::Wild | LandUse::Farm | LandUse::Vacant) || !w.p.road_access[i] || on_street_grid(w, i)
+        {
             continue;
         }
         // Residents who would gain park access, per unit of cost.
         let pop: f32 = w.dims.ring(i, 3).iter().map(|&j| w.f.pop[j]).sum();
-        let lacking = 1.0 - (w.f.amenity[i] / crate::fields::PARK_VALUE).min(1.0);
+        let lacking = 1.0 - (w.f.amenity[i] / (w.index * crate::fields::PARK_VALUE)).min(1.0);
         let price = w.parcel_value(i).max(1.0);
         let score = (pop * lacking) as f64 / price;
         if pop > 20.0 && best.map_or(true, |b| score > b.1) {
@@ -217,7 +303,8 @@ fn build_civic(w: &mut World) {
     let mut best: Option<(usize, f32)> = None;
     for i in 0..n {
         let u = w.p.land_use[i];
-        if !matches!(u, LandUse::Wild | LandUse::Farm | LandUse::Vacant) || !w.p.road_access[i] {
+        if !matches!(u, LandUse::Wild | LandUse::Farm | LandUse::Vacant) || !w.p.road_access[i] || on_street_grid(w, i)
+        {
             continue;
         }
         let need = w.f.pop[i] + w.dims.ring(i, 3).iter().map(|&j| w.f.pop[j]).sum::<f32>();

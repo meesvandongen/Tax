@@ -4,40 +4,25 @@
 //! formula that bakes in the expected effect of a tax.
 
 use crate::econ::{self, Investor};
-use crate::grid::{exp_blur, smoothed_mean};
 use crate::types::*;
 use crate::world::{Event, World};
 
-/// Quarterly mass appraisal by comparables. Land value is observed where it
-/// can be: the residual of what built parcels actually earn (capitalised
-/// rent minus depreciated building value) and recent sale prices. These
-/// observations are smoothed spatially, so an idle lot is assessed like the
-/// land around it ("as if vacant"), and floored at agricultural value.
+/// Quarterly mass appraisal. Land is valued "as if vacant": what the site
+/// would fetch from a typical (absentee) investor for its best permitted
+/// project, given local rents, occupancy and the tax schedule. Nothing the
+/// owner has built enters, so a land tax stays a fixed charge. Recent sale
+/// prices (net of the building) are blended in, values are floored at
+/// agricultural use, and assessors smooth over several rounds (≈ 2 years);
+/// owners appeal assessments more than 10% above the current value.
+/// Land without street access can only be farmed until a road arrives, so it
+/// is assessed as farmland.
 pub fn assess(w: &mut World, force: bool) {
     if !force && w.tick % 3 != 0 {
         return;
     }
     let inv = w.absentee_investor();
-    let noise = w.cfg.econ.assessment_noise as f64;
+    let noise = w.econ.assessment_noise as f64;
     let n = w.p.len();
-    let mut obs = vec![0f32; n];
-    let mut wt = vec![0f32; n];
-    for i in 0..n {
-        let u = w.p.land_use[i];
-        let bldg = econ::building_value(w, i);
-        if u.is_private_use() {
-            let residual = (econ::current_use_value(w, i, &inv) - bldg).max(0.0);
-            obs[i] = residual as f32;
-            wt[i] = 1.0;
-        }
-        if w.p.months_since_sale[i] < 24 && w.p.price[i] > 0.0 && u != LandUse::Construction {
-            let sale_land = (w.p.price[i] as f64 - bldg).max(0.0) as f32;
-            obs[i] = (obs[i] * wt[i] + 2.0 * sale_land) / (wt[i] + 2.0);
-            wt[i] += 2.0;
-        }
-    }
-    let smooth = smoothed_mean(&obs, &wt, w.dims, 2.0, 0.0);
-    let coverage = exp_blur(&wt, w.dims, 2.0);
     for i in 0..n {
         let u = w.p.land_use[i];
         if matches!(u, LandUse::Water | LandUse::Road) {
@@ -46,14 +31,21 @@ pub fn assess(w: &mut World, force: bool) {
             continue;
         }
         let farm = farm_value(w, i, &inv);
-        let a = (coverage[i] / (coverage[i] + 0.5)) as f64;
-        let land = (a * smooth[i] as f64 + (1.0 - a) * farm).max(farm);
+        let bldg = econ::building_value(w, i);
+        let site = if w.p.in_city[i] || w.p.road_access[i] { econ::vacant_site_value(w, i, &inv) } else { 0.0 };
+        let mut land = site.max(farm);
+        if w.p.months_since_sale[i] < 24 && w.p.price[i] > 0.0 && u != LandUse::Construction {
+            let sale_land = (w.p.price[i] as f64 - bldg).max(0.0);
+            land = (2.0 * land + sale_land) / 3.0;
+        }
         let eps = 1.0 + noise * w.rng.normal().clamp(-2.5, 2.5);
-        // Assessors average over several valuation rounds (≈ 2 years).
-        let fresh = (land * eps).max(0.0) as f32;
+        let fresh = (land.max(farm) * eps).max(0.0) as f32;
         let old = w.p.assessed_land[i];
-        w.p.assessed_land[i] = if force || old <= 0.0 { fresh } else { 0.75 * old + 0.25 * fresh };
-        w.p.assessed_bldg[i] = econ::building_value(w, i) as f32;
+        let smoothed = if force || old <= 0.0 { fresh } else { 0.75 * old + 0.25 * fresh };
+        // Owners appeal assessments well above the current market value, so
+        // smoothing only delays increases.
+        w.p.assessed_land[i] = smoothed.min((1.1 * land.max(farm)) as f32);
+        w.p.assessed_bldg[i] = bldg as f32;
         if w.p.months_since_sale[i] >= 24 || w.p.price[i] <= 0.0 {
             w.p.price[i] = w.p.assessed_land[i] + w.p.assessed_bldg[i];
         }
@@ -62,7 +54,7 @@ pub fn assess(w: &mut World, force: bool) {
 
 /// Capitalised agricultural rent: the floor under all land values.
 pub fn farm_value(w: &World, i: usize, inv: &Investor) -> f64 {
-    let farm_rent = w.cfg.econ.farm_rent as f64 * (0.4 + w.terrain.fertility[i] as f64);
+    let farm_rent = w.econ.farm_rent as f64 * (0.4 + w.terrain.fertility[i] as f64);
     let denom = (inv.r - inv.g + w.taxes.holding_rate(1.0)).max(0.01);
     12.0 * farm_rent / denom
 }
@@ -117,7 +109,7 @@ fn candidate_buyers(w: &mut World, rich: &[u32], i: usize) -> Vec<Bid> {
 fn can_afford(w: &World, buyer: Owner, price: f64, transfer: f64) -> bool {
     match buyer {
         Owner::Hh(id) => {
-            let ltv = w.cfg.econ.loan_to_value as f64;
+            let ltv = w.econ.loan_to_value as f64;
             w.hh[id as usize].cash >= price * (1.0 - ltv) + transfer
         }
         _ => true,
@@ -134,7 +126,7 @@ fn execute(w: &mut World, i: usize, buyer: Owner, price: f64) {
     let mut new_mortgage = 0.0;
     match buyer {
         Owner::Hh(id) => {
-            let ltv = w.cfg.econ.loan_to_value as f64;
+            let ltv = w.econ.loan_to_value as f64;
             let h = &mut w.hh[id as usize];
             let down = (price * (1.0 - ltv)).max(price - (h.cash - transfer).max(0.0));
             let down = down.min(price);
@@ -163,11 +155,15 @@ fn execute(w: &mut World, i: usize, buyer: Owner, price: f64) {
 }
 
 pub fn market(w: &mut World) {
-    let e = w.cfg.econ.clone();
+    let e = w.econ.clone();
     let n = w.p.len();
     // Resident investors: households with savings to deploy.
     let rich: Vec<u32> =
-        w.hh.iter().enumerate().filter(|(_, h)| h.alive && h.cash > 60_000.0).map(|(id, _)| id as u32).collect();
+        w.hh.iter()
+            .enumerate()
+            .filter(|(_, h)| h.alive && h.cash > 60_000.0 * w.index as f64)
+            .map(|(id, _)| id as u32)
+            .collect();
 
     // ---- forced sales: owners who cannot meet obligations
     let mut distressed: Vec<u32> =
@@ -200,6 +196,30 @@ pub fn market(w: &mut World) {
                 let price = (b.value / (1.0 + w.taxes.transfer_cost(1.0))) * 0.9;
                 execute(w, i, b.buyer, price.max(1.0));
                 w.flows.forced_sales += 1;
+                w.push_event(Event::Sale { cell: i as u32, forced: true });
+            }
+        }
+    }
+
+    // ---- owners in tax arrears try to sell before they walk away, and the
+    // city auctions foreclosed parcels to the highest bidder
+    for i in 0..n {
+        let in_arrears = w.p.arrears[i] > 0;
+        let foreclosed = w.p.owner[i] == Owner::Gov && w.p.land_use[i].is_developable();
+        if !(in_arrears || foreclosed) || (i as u64 + w.tick) % 3 != 0 {
+            continue;
+        }
+        let bids = candidate_buyers(w, &rich, i);
+        let t_rate = w.taxes.transfer_cost(1.0);
+        let best = bids
+            .into_iter()
+            .map(|b| (b.buyer, b.value / (1.0 + t_rate)))
+            .filter(|&(buyer, price)| price > 0.0 && can_afford(w, buyer, price, price * t_rate))
+            .max_by(|a, b| a.1.total_cmp(&b.1));
+        if let Some((buyer, price)) = best {
+            if buyer != w.p.owner[i] {
+                execute(w, i, buyer, price);
+                w.p.arrears[i] = 0;
                 w.push_event(Event::Sale { cell: i as u32, forced: true });
             }
         }
@@ -260,6 +280,30 @@ pub fn market(w: &mut World) {
     for v in w.p.months_since_sale.iter_mut() {
         *v = v.saturating_add(1);
     }
+}
+
+/// A household owner who would build but cannot finance it sells to outside
+/// capital at the developer's valuation, if that beats keeping the parcel.
+pub fn sell_to_developer(w: &mut World, i: usize) -> bool {
+    let seller = w.p.owner[i];
+    let inv = w.absentee_investor();
+    let bid = econ::valuation(w, i, &inv);
+    let keep = econ::current_use_value(w, i, &w.investor_for(seller));
+    let price = bid / (1.0 + w.taxes.transfer_cost(1.0));
+    if price <= keep || price <= 0.0 {
+        return false;
+    }
+    execute(w, i, Owner::Absentee, price);
+    w.push_event(Event::Sale { cell: i as u32, forced: false });
+    true
+}
+
+/// A departing household sells a parcel to outside capital at its
+/// valuation (at least the assessed value).
+pub fn sell_on_departure(w: &mut World, i: usize) {
+    let inv = w.absentee_investor();
+    let price = (econ::valuation(w, i, &inv) / (1.0 + w.taxes.transfer_cost(1.0))).max(w.parcel_value(i) * 0.9);
+    execute(w, i, Owner::Absentee, price.max(1.0));
 }
 
 /// Government purchase (parks, roads, civic buildings) at the owner's

@@ -173,9 +173,10 @@ pub fn report(w: &World) -> String {
             0.0
         };
         let losing = fs.iter().filter(|f| f.months_loss > 0).count();
+        let cash: f64 = fs.iter().map(|f| f.cash).sum();
         let _ = writeln!(
             out,
-            "{:<9} firms {:>5} slots {:>7} workers {:>7} desired {:>7} wage/skill {:>6.0} revenue {:>10.0}k profit {:>9.0}k losing {}",
+            "{:<9} firms {:>5} slots {:>7} workers {:>7} desired {:>7} wage/skill {:>6.0} revenue {:>10.0}k profit {:>9.0}k cash {:>9.0}k losing {}",
             format!("{sector:?}"),
             fs.len(),
             slots,
@@ -184,6 +185,7 @@ pub fn report(w: &World) -> String {
             wage,
             revenue / 1e3,
             profit / 1e3,
+            cash / 1e3,
             losing
         );
     }
@@ -294,13 +296,15 @@ pub fn check(w: &World) -> Vec<String> {
         v.push(format!("median rent {:.0} vs base wage {:.0}", m.median_rent, base));
     }
 
-    // Business space.
+    // Business space. (Some spare floor space is normal: a building houses
+    // one firm, and firms shrink when wages rise. Mostly empty premises,
+    // or buildings without any tenant, are not.)
     let com = use_stats(w, LandUse::Commercial);
     let ind = use_stats(w, LandUse::Industrial);
     let res = use_stats(w, LandUse::Residential);
     let biz_units = (com.units + ind.units) as f64;
     let biz_occ = (com.occupied + ind.occupied) as f64;
-    if biz_units > 500.0 && biz_occ < 0.4 * biz_units {
+    if biz_units > 500.0 && biz_occ < 0.25 * biz_units {
         v.push(format!(
             "business space {:.0}% occupied ({} of {} job slots)",
             pct(biz_occ, biz_units),

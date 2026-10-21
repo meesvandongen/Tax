@@ -100,7 +100,11 @@ pub fn run(w: &mut World) {
         w.pay_owner(landlord, rent);
 
         let after_tax = profit - corp;
-        let dividend = if after_tax > 0.0 { after_tax * 0.7 } else { 0.0 };
+        // Firms keep 30% of profits and pay out cash beyond a six-month
+        // buffer of costs, so retained earnings do not pile up forever.
+        let buffer = 6.0 * (revenue - profit).max(0.0);
+        let excess = (f.cash + 0.3 * after_tax.max(0.0) - buffer).max(0.0) / 12.0;
+        let dividend = if after_tax > 0.0 { after_tax * 0.7 } else { 0.0 } + excess;
         {
             let fm = &mut w.firms[id];
             fm.revenue = revenue as f32;

@@ -38,10 +38,12 @@ pub struct Fields {
     pub rent_res: Vec<f32>,
     pub rent_com: Vec<f32>,
     pub rent_ind: Vec<f32>,
-    /// Ceiling on business rents set by what tenants nearby actually pay
-    /// (`f32::MAX` where there is no evidence).
-    pub cap_com: Vec<f32>,
-    pub cap_ind: Vec<f32>,
+    /// Business rents per job slot that tenants nearby actually pay, and how
+    /// much evidence there is for them (0 = none, → 1 = plenty).
+    pub obs_com: Vec<f32>,
+    pub obs_ind: Vec<f32>,
+    pub evid_com: Vec<f32>,
+    pub evid_ind: Vec<f32>,
     /// Smoothed occupancy rates per use.
     pub occ_res: Vec<f32>,
     pub occ_com: Vec<f32>,
@@ -78,8 +80,10 @@ impl Fields {
             rent_res: z(),
             rent_com: z(),
             rent_ind: z(),
-            cap_com: vec![f32::MAX; n],
-            cap_ind: vec![f32::MAX; n],
+            obs_com: z(),
+            obs_ind: z(),
+            evid_com: z(),
+            evid_ind: z(),
             occ_res: z(),
             occ_com: z(),
             occ_ind: z(),
@@ -254,17 +258,15 @@ pub fn update(w: &mut World) {
             biz_wt[k - 1][i] = occ.max(1.0);
         }
     }
-    // Developers and assessors price business space at most a little above
-    // the rents paid nearby: a bid-rent nobody pays is not a market rent.
-    let mut caps = [vec![f32::MAX; n], vec![f32::MAX; n]];
+    // Developers and assessors cap business rents at what tenants nearby
+    // actually pay (see `econ::market_rent`).
+    let mut biz_obs = [vec![0f32; n], vec![0f32; n]];
+    let mut biz_evid = [vec![0f32; n], vec![0f32; n]];
     for k in 0..2 {
-        let obs = smoothed_mean(&biz_rent[k], &biz_wt[k], dims, 4.0, 0.0);
+        biz_obs[k] = smoothed_mean(&biz_rent[k], &biz_wt[k], dims, 4.0, 0.0);
         let thin = exp_blur(&biz_wt[k], dims, 4.0);
         for i in 0..n {
-            let a = thin[i] / (thin[i] + 4.0);
-            if a > 0.02 {
-                caps[k][i] = obs[i] * (1.0 + 1.5 * (1.0 - a));
-            }
+            biz_evid[k][i] = thin[i] / (thin[i] + 4.0);
         }
     }
     let global = |d: &[f32], wt: &[f32], prev: f32| {
@@ -332,9 +334,12 @@ pub fn update(w: &mut World) {
     f.amenity = amenity;
     f.service = service;
     f.loc_res = loc_res;
-    let [cap_com, cap_ind] = caps;
-    f.cap_com = cap_com;
-    f.cap_ind = cap_ind;
+    let [obs_com, obs_ind] = biz_obs;
+    let [evid_com, evid_ind] = biz_evid;
+    f.obs_com = obs_com;
+    f.obs_ind = obs_ind;
+    f.evid_com = evid_com;
+    f.evid_ind = evid_ind;
     // Market rents for business space at a typical premises size.
     // (Only where business could locate: serviced land inside the city.)
     for i in 0..n {

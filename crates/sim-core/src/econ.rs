@@ -100,10 +100,20 @@ pub fn building_value(w: &World, i: usize) -> f64 {
 pub fn market_rent(w: &World, i: usize, u: LandUse, units: u16) -> f32 {
     match u {
         LandUse::Residential => w.f.rent_res[i],
-        LandUse::Commercial => firm_bid_rent(w, i, u, units).min(w.f.cap_com[i]),
-        LandUse::Industrial => firm_bid_rent(w, i, u, units).min(w.f.cap_ind[i]),
+        LandUse::Commercial => comparable_rent(firm_bid_rent(w, i, u, units), w.f.obs_com[i], w.f.evid_com[i]),
+        LandUse::Industrial => comparable_rent(firm_bid_rent(w, i, u, units), w.f.obs_ind[i], w.f.evid_ind[i]),
         _ => 0.0,
     }
+}
+
+/// Business rent: the bid-rent of a typical firm for premises of this size,
+/// but never above what tenants nearby actually pay (allowing more headroom
+/// where the evidence is thin). A bid-rent nobody pays is not a market rent.
+fn comparable_rent(bid: f32, observed: f32, evidence: f32) -> f32 {
+    if evidence < 0.02 {
+        return bid;
+    }
+    bid.min(observed * (1.0 + 1.5 * (1.0 - evidence)))
 }
 
 /// The most a typical firm could pay per job slot for premises with
@@ -155,11 +165,15 @@ pub fn expected_occupancy(w: &World, i: usize, u: LandUse, new_units: u16) -> f6
     // to fill: tenants can still bid workers away with higher wages.
     // Developers also look at how well existing business space is let,
     // nearby and city-wide: empty premises compete with new ones.
+    // A business building houses one firm, and firms only grow so large:
+    // floors beyond what a typical tenant staffs stand empty.
     let occ = if u == LandUse::Residential {
         occ
     } else {
         let labour = 0.92 * (0.35 + 0.65 * w.labour_slack.min(1.0));
-        labour.min(occ).min(w.biz_occupancy + 0.05)
+        let typical = if u == LandUse::Commercial { w.firm_size[0] } else { w.firm_size[1] };
+        let fill = if new_units > 0 { (typical / new_units as f32).min(1.0) } else { 1.0 };
+        labour.min(occ).min(w.biz_occupancy + 0.05).min(fill)
     };
     // New space competes with what is already being built nearby.
     let absorption = 0.6 * (new_units as f32 + pipeline) / (local_units + 25.0);
@@ -353,7 +367,11 @@ pub fn valuation(w: &World, i: usize, inv: &Investor) -> f64 {
 pub fn expected_growth(w: &World, r: f64) -> f64 {
     let e = &w.econ;
     let trend = w.rent_growth.max(w.price_growth * 0.5);
-    (e.outside_growth as f64 + e.speculation as f64 * trend).clamp(-0.03, r - 0.035)
+    // Extrapolation is bounded: nobody prices a perpetuity on a boom lasting
+    // forever (values scale with 1/(r − g), so small moves in g swing land
+    // values, and land taxes, enormously).
+    let base = e.outside_growth as f64;
+    (base + e.speculation as f64 * trend).clamp(base - 0.02, (base + 0.015).min(r - 0.035))
 }
 
 impl World {
@@ -412,6 +430,14 @@ impl World {
             }
         }
         self.biz_occupancy = if units > 50.0 { occupied / units } else { 0.9 };
+        for (k, sector) in [Sector::Retail, Sector::Industry].into_iter().enumerate() {
+            let (n, workers) = self
+                .firms
+                .iter()
+                .filter(|f| f.alive && f.sector == sector)
+                .fold((0f32, 0f32), |(n, s), f| (n + 1.0, s + f.workers as f32));
+            self.firm_size[k] = if n >= 5.0 { workers / n } else { 15.0 };
+        }
     }
 
     pub fn update_pressure(&mut self) {

@@ -89,4 +89,6 @@ The mechanism tests check properties the model must have by construction:
 * a land value tax never changes the chosen building height;
 * a building tax never raises it;
 * land taxes capitalize into land values;
+* private development never builds on the mapped street plan;
+* a road blocked by a building expropriates it at full compensation;
 * long runs stay finite.

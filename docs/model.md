@@ -100,7 +100,15 @@ commercial or industrial; floors go up to 40, or 3 for industry, subject to the 
   construction nearby, so developers see competing cranes;
 * **business space:** priced at the firm's **bid-rent** for premises of that size. That is revenue per worker at
   that scale, minus labour cost and a margin. Shops share local spending (Huff); factories have decreasing
-  average product.
+  average product. Factories are priced *through the cycle*: at the export price expected over a ten-year
+  occupancy, not today's boom or slump price;
+* **clearing the site:** demolition, plus compensation for sitting tenants: a relocation allowance of
+  `relocation_months` (6) of rent per household, and twice that per leased job slot as a lease buy-out for a firm.
+  The owner pays it to the tenants when construction starts.
+
+An existing building is valued as it stands. Let business premises are worth at least the lease the sitting
+tenant pays, as an appraiser would value them, not only what a newcomer would bid in today's labour market.
+Without that, a fully let factory looked worthless whenever labour was tight and was torn down.
 
 The owner then **builds** only if the residual (value − cost − demolition) beats both keeping the current use and
 **waiting a year**. Waiting means (value × (1+g) − cost)/(1+r) plus interim after-tax income. A land tax paid on
@@ -167,7 +175,13 @@ an idle lot lowers that interim income. Household owners need a 30% down payment
   nearby locations.
 * **Roads:** extend the block grid where it unlocks the most rent potential, but only while serviced idle land
   is scarce relative to construction activity.
-* **Parks:** buy land at market price where many residents lack park access.
+  * The grid is a **mapped street plan** (an official map, like Manhattan's 1811 grid): every fifth row and
+    column through the founding crossing. Owners may farm land on it but not build there, and it is exempt from
+    property taxes until the road comes. The government then buys it at its assessed (as-if-unreserved) value.
+  * A building in the way, one that predates the plan, can be **expropriated** with full compensation: market
+    value, demolition and the tenants' relocation payments. That makes it much more expensive than open land,
+    so the planner chooses it only when nothing cheaper unlocks as much land.
+* **Parks:** buy land at market price where many residents lack park access (never on the street plan).
 * **Dividend:** equal per household. **Welfare:** a top-up with 50% withdrawal, extra for the unhoused.
 * **Surplus rebate:** reserves above 12 months of revenue that no programme can absorb are returned equally.
   Otherwise high-tax regimes would simply destroy money.
@@ -222,8 +236,8 @@ These are 10 seeds × 40 years, from `taxsim compare` (mean ± standard error; s
 smaller than a couple of standard errors are noise.
 
 * **Georgist** (6% land value tax, dividend):
-  * land prices −55–60% versus the status quo, rent burden ~22% vs ~33%;
-  * a more compact city with shorter commutes and slightly taller buildings;
+  * land prices −25–30% versus the status quo, rent burden ~28% vs ~34%;
+  * a slightly more compact city with shorter commutes and slightly taller buildings;
   * more land owned by residents and much higher average resident welfare;
   * but higher wealth inequality (no income or wealth taxes), and population within noise of the status quo.
 * **Wealth tax** (2% above 1M): lower wealth inequality and the most departures of wealthy households. City size
@@ -242,6 +256,10 @@ smaller than a couple of standard errors are noise.
 * **Public goods matter a lot.** Service coverage adds up to 380/month of location value, and roads gate
   development. Low-revenue regimes therefore grow less. This is the Henry George mechanism, but its strength is
   a parameter (`fields.rs`: `SERVICE_VALUE`, `PARK_VALUE`, `POLLUTION_COST`).
+* **Factories outbid homes without zoning.** A floor holds 14 factory jobs but only 4 dwellings, so per floor
+  industry can pay more rent than housing. Real industrial rents per m² are well below residential ones. With
+  zoning off, homes near industry are still rebuilt as factories, often when they are only 10–20 years old.
+  Real cities mostly prevent this with use zoning. In test runs, turning zoning on cut rebuilds by 2–10×.
 * **Stochastic and path-dependent.** Housing cycles emerge from construction lags, and terrain matters. Use many
   seeds.
 * **Not modelled:** monetary policy, credit cycles beyond simple mortgages, international trade beyond a single

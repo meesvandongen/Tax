@@ -110,10 +110,13 @@ fn begin_tick(w: &mut World) {
     w.update_labour_slack();
 }
 
+/// Monthly persistence of the export-price cycle.
+pub const CYCLE_PERSISTENCE: f32 = 0.94;
+
 /// Outside-world shocks: an AR(1) business cycle on export prices.
 fn exogenous(w: &mut World) {
     let shock = 0.025 * w.rng.normal() as f32;
-    w.cycle = (1.0 + 0.94 * (w.cycle - 1.0) + shock).clamp(0.7, 1.3);
+    w.cycle = (1.0 + CYCLE_PERSISTENCE * (w.cycle - 1.0) + shock).clamp(0.7, 1.3);
 }
 
 /// Price and rent indices with smoothed growth (feeds expectations).

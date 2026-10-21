@@ -239,6 +239,9 @@ pub fn demographics(w: &mut World) {
         let tax = w.taxes.levy(|m| m.estate(estate));
         w.gov.cash += tax;
         let child_skill = (0.5 * (w.hh[id].skill as f64).ln() + w.rng.normal() * sigma * 0.85).exp() as f32;
+        // (Leave the job before the skill changes, so the employer's skill
+        // total loses the worker who died, not the heir.)
+        crate::labour::fire(w, id as u32);
         let h = &mut w.hh[id];
         h.cash -= tax;
         h.taxes_paid += tax as f32;
@@ -248,7 +251,6 @@ pub fn demographics(w: &mut World) {
         h.effort_cost = (w.rng.lognormal(5.6, 0.7) as f32).min(3000.0);
         h.months_unhappy = 0;
         let cell = if h.home != NONE { h.home } else { w.center as u32 };
-        crate::labour::fire(w, id as u32);
         w.flows.deaths += 1;
         w.push_event(Event::Death { cell });
     }

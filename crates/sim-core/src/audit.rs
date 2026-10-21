@@ -386,6 +386,23 @@ pub fn check(w: &World) -> Vec<String> {
     if dead_firms > 0 {
         v.push(format!("{dead_firms} firms owned by households that left"));
     }
+    // Each firm's head count and skill total must match the households it
+    // employs: output is computed from them.
+    let mut staff = vec![(0u32, 0f64); w.firms.len()];
+    for h in w.hh.iter().filter(|h| h.alive && h.job != NONE) {
+        let s = &mut staff[h.job as usize];
+        s.0 += 1;
+        s.1 += h.skill as f64;
+    }
+    let miscounted = w
+        .firms
+        .iter()
+        .zip(&staff)
+        .filter(|(f, s)| f.alive && (f.workers as u32 != s.0 || (f.skill_sum as f64 - s.1).abs() > 0.01 * s.1 + 0.05))
+        .count();
+    if miscounted > 0 {
+        v.push(format!("{miscounted} firms' head count or skill total does not match their staff"));
+    }
     let on_streets =
         (0..w.p.len()).filter(|&i| w.p.land_use[i].is_private_use() && crate::government::on_street_plan(w, i)).count();
     if on_streets > 0 {

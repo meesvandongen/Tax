@@ -177,7 +177,10 @@ fn unserviced_land_is_assessed_as_farmland() {
 /// goes elsewhere instead of becoming unbounded revenue per worker.
 #[test]
 fn retail_sales_per_worker_are_bounded() {
-    let sim = grown_city(120);
+    let mut sim = grown_city(120);
+    // (Check right after production: workers who leave later in the month
+    // would make last month's revenue look like more per worker.)
+    sim_core::production::run(&mut sim.world);
     let w = &sim.world;
     for f in w.firms.iter().filter(|f| f.alive && f.sector == sim_core::types::Sector::Retail && f.workers > 0) {
         let cap = w.econ.retail_output_per_worker * f.productivity * f.workers as f32;

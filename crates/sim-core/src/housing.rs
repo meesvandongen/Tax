@@ -204,17 +204,16 @@ pub fn adjust_rents(w: &mut World) {
     }
 }
 
-/// Utility (money per month) of living at `cell` paying `rent`.
-/// Monthly money-equivalent cost of living in a run-down building.
-pub const DISREPAIR_COST: f32 = 450.0;
-
+/// Utility (money per month) of living at `cell` paying `rent`. Living in a
+/// run-down building costs what its condition takes off the local rent.
 fn location_utility(w: &World, h: &Household, cell: usize, rent: f32) -> f32 {
     let commute = if h.job != NONE {
         commute_cost(w, cell, w.firms[h.job as usize].parcel as usize)
     } else {
         w.econ.commute_cost_per_cell * w.f.commute_eff[cell]
     };
-    residential_quality(w, cell) - commute - rent - w.index * DISREPAIR_COST * (1.0 - w.p.condition[cell])
+    let disrepair = (1.0 - crate::econ::rent_quality(w.p.condition[cell]) as f32) * w.f.rent_res[cell];
+    residential_quality(w, cell) - commute - rent - disrepair
 }
 
 /// Monthly income a household can count on (for affordability).

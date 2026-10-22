@@ -60,6 +60,9 @@ pub struct DevOption {
     pub value: f64,
     /// Residual: value − construction − demolition.
     pub residual: f64,
+    /// What each owner-occupier is paid for their flat when the site is
+    /// cleared (0: the standard buyout, [`flat_buyout`]).
+    pub flat_price: f64,
 }
 
 pub fn units_for(w: &World, u: LandUse, floors: u8) -> u16 {
@@ -271,6 +274,18 @@ pub fn capitalize_at_land(
     ((12.0 * noi_month * (1.0 - inv.t_inc) - fixed_tax) / denom).max(0.0)
 }
 
+/// Share of a new building's rent that a building in `condition` (0 =
+/// ruin, 1 = new) can command. Steep near ruin: a slum dwelling lets for a
+/// fraction of the rent of a sound one, so maintenance pays most where a
+/// building is most run down, and conditions settle instead of collapsing.
+pub fn rent_quality(condition: f32) -> f64 {
+    (condition.clamp(0.0, 1.0) as f64).sqrt()
+}
+
+fn gross_rent(w: &World, i: usize, u: LandUse, units: u16, occ: f64) -> f64 {
+    units as f64 * occ * market_rent(w, i, u, units) as f64
+}
+
 /// Net operating income per month before property taxes and income tax.
 pub fn noi(w: &World, i: usize, u: LandUse, units: u16, occ: f64, bldg_cost: f64) -> f64 {
     let rent = market_rent(w, i, u, units) as f64;
@@ -321,16 +336,17 @@ pub fn building_in_condition_value(w: &World, i: usize, inv: &Investor, conditio
     } else {
         (p.occupied[i] as f64 / units as f64).max(expected_occupancy(w, i, u, 0) * 0.8)
     };
-    // Rent actually achievable is capped by building condition.
-    let quality = 0.6 + 0.4 * condition as f64;
-    let n = noi(w, i, u, units, occ, bldg) * quality;
+    // Rent actually achievable falls with the building's condition.
+    let n = noi(w, i, u, units, occ, bldg) + (rent_quality(condition) - 1.0) * gross_rent(w, i, u, units, occ);
     let market = capitalize(w, inv, i, n, bldg, 1.0 - occ);
     // Let business premises are worth at least the lease the sitting tenant
     // pays, as an appraiser would value them, not only what a newcomer might
     // bid in today's labour market.
     let leased = leased_slots(w, i);
     if leased > 0 {
-        let n = p.asking_rent[i] as f64 * leased as f64 - w.econ.maintenance_rate as f64 * bldg;
+        // (A tenant in a crumbling building renegotiates its lease down.)
+        let n =
+            p.asking_rent[i] as f64 * leased as f64 * rent_quality(condition) - w.econ.maintenance_rate as f64 * bldg;
         let idle = 1.0 - leased as f64 / units.max(1) as f64;
         market.max(capitalize(w, inv, i, n, bldg, idle))
     } else {
@@ -407,7 +423,8 @@ pub fn owner_occupier_value(w: &World, i: usize, inv: &Investor) -> f64 {
     let units = p.units[i].max(1) as f64;
     let bldg = building_value(w, i);
     let upkeep = w.econ.maintenance_rate as f64 * construction_cost(w, i, p.land_use[i], p.floors[i]);
-    let n = units * p.asking_rent[i] as f64 - upkeep;
+    let rent = market_rent(w, i, p.land_use[i], p.units[i]) as f64 * rent_quality(p.condition[i]);
+    let n = units * rent - upkeep;
     let own = Investor { t_inc: 0.0, ..*inv };
     capitalize(w, &own, i, n, bldg, crate::property::idle_share(w, i)) / units
 }
@@ -472,7 +489,7 @@ pub fn best_development(w: &World, i: usize, inv: &Investor) -> Option<DevOption
             let value = capitalize(w, inv, i, n, cost, 1.0 - occ);
             let residual = value - cost - demolition;
             if best.map_or(true, |b| residual > b.residual) {
-                best = Some(DevOption { land_use: u, floors, units, cost, value, residual });
+                best = Some(DevOption { land_use: u, floors, units, cost, value, residual, flat_price: 0.0 });
             }
         }
     }

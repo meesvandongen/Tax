@@ -43,10 +43,15 @@ pub fn progress(w: &mut World) {
 /// bought out of their flats, and all leave. Returns the compensation, which
 /// the caller charges to the owner.
 pub fn clear_site(w: &mut World, i: usize) -> f64 {
+    let buyout = if w.p.owned_flats[i] > 0 { econ::flat_buyout(w, i) } else { 0.0 };
+    clear_site_paying(w, i, buyout)
+}
+
+/// [`clear_site`], paying owner-occupiers `buyout` per flat.
+fn clear_site_paying(w: &mut World, i: usize, buyout: f64) -> f64 {
     let months = w.econ.relocation_months as f64;
     let mut paid = 0.0;
     if w.p.land_use[i] == LandUse::Residential && w.p.occupied[i] > 0 {
-        let buyout = if w.p.owned_flats[i] > 0 { econ::flat_buyout(w, i) } else { 0.0 };
         let tenants: Vec<u32> =
             w.hh.iter().enumerate().filter(|(_, h)| h.alive && h.home == i as u32).map(|(id, _)| id as u32).collect();
         for id in tenants {
@@ -85,7 +90,7 @@ pub fn clear_site(w: &mut World, i: usize) -> f64 {
 }
 
 pub fn start_construction(w: &mut World, i: usize, d: &DevOption) {
-    let compensation = clear_site(w, i);
+    let compensation = if d.flat_price > 0.0 { clear_site_paying(w, i, d.flat_price) } else { clear_site(w, i) };
     match w.p.owner[i] {
         Owner::Hh(id) => w.hh[id as usize].cash -= compensation,
         Owner::Gov => w.gov.cash -= compensation,
@@ -139,26 +144,27 @@ pub enum Decision {
     Blocked,
 }
 
-/// Whether enough of a building's dwellings accept a developer's offer of
-/// the flat buyout: the parcel owner's own dwellings say yes; an owner-
-/// occupier says yes if the offer beats what living there is worth to them
-/// plus the cost of moving.
-fn collective_sale_agreed(w: &World, i: usize) -> bool {
-    if w.p.owned_flats[i] == 0 {
-        return true;
-    }
-    let offer = econ::flat_buyout(w, i);
+/// The lowest price per flat at which enough of a building's dwellings
+/// accept a developer's offer (at least the standard buyout). The parcel
+/// owner's own dwellings say yes; an owner-occupier says yes once the offer
+/// beats what living there is worth to them plus the cost of moving. Every
+/// owner, holdouts included, is then paid that price.
+pub fn collective_sale_price(w: &World, i: usize) -> f64 {
+    let floor = econ::flat_buyout(w, i);
     let moving = w.econ.relocation_months as f64 * w.p.asking_rent[i] as f64;
-    let mut yes = (w.p.units[i] - w.p.owned_flats[i]) as f64;
-    for (id, h) in w.hh.iter().enumerate() {
-        if h.alive && h.owns_home && h.home == i as u32 {
-            let own = econ::owner_occupier_value(w, i, &w.household_investor(id as u32));
-            if offer >= own + moving {
-                yes += 1.0;
-            }
-        }
+    let mut asks: Vec<f64> =
+        w.hh.iter()
+            .enumerate()
+            .filter(|(_, h)| h.alive && h.owns_home && h.home == i as u32)
+            .map(|(id, _)| econ::owner_occupier_value(w, i, &w.household_investor(id as u32)) + moving)
+            .collect();
+    asks.sort_by(|a, b| a.total_cmp(b));
+    let units = w.p.units[i] as f64;
+    let needed = (w.cfg.policy.collective_sale_threshold as f64 * units).ceil() - (units - asks.len() as f64);
+    if needed <= 0.0 || asks.is_empty() {
+        return floor;
     }
-    yes >= w.cfg.policy.collective_sale_threshold as f64 * w.p.units[i] as f64
+    floor.max(asks[(needed as usize).min(asks.len()) - 1])
 }
 
 pub fn decide(w: &World, i: usize, inv: &econ::Investor) -> Decision {
@@ -201,8 +207,15 @@ pub fn decide(w: &World, i: usize, inv: &econ::Investor) -> Decision {
     if best.residual <= 0.0 || best.residual <= cur * 1.05 {
         return Decision::Keep;
     }
-    if !collective_sale_agreed(w, i) {
-        return Decision::Blocked;
+    // Owner-occupiers must be bought out at a price enough of them accept.
+    let mut best = best;
+    if w.p.land_use[i] == LandUse::Residential && w.p.owned_flats[i] > 0 {
+        let price = collective_sale_price(w, i);
+        best.residual -= w.p.owned_flats[i] as f64 * (price - econ::flat_buyout(w, i));
+        best.flat_price = price;
+        if best.residual <= cur * 1.05 {
+            return Decision::Blocked;
+        }
     }
     // Waiting: the project is worth (1+g) more next year, costs are fixed,
     // meanwhile the parcel earns its interim income (net of holding taxes).

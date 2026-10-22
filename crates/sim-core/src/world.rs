@@ -77,6 +77,8 @@ pub struct Flows {
     pub wealthy_emigrants: u32,
     pub capital_flight: f64,
     pub exports: f64,
+    /// The part of `exports` that is tradable services.
+    pub service_exports: f64,
     pub imports: f64,
     pub absentee_income: f64,
     pub construction_spend: f64,
@@ -88,12 +90,20 @@ pub struct Flows {
     pub buildings_completed: u32,
     pub renovations: u32,
     pub demolitions: u32,
+    /// Floors added on top of existing buildings (projects).
+    pub extensions: u32,
+    /// Redevelopments of owner-occupied buildings that the owners voted down.
+    pub collective_sales_blocked: u32,
     /// Tenants who bought the flat they live in, and owners who sold theirs.
     pub flat_purchases: u32,
     pub flat_sales: u32,
     pub firms_opened: u32,
     pub firms_closed: u32,
     pub deaths: u32,
+    /// Heirs who set up their own household here, and the inheritances
+    /// that left with heirs living elsewhere.
+    pub heirs_settled: u32,
+    pub inheritance_out: f64,
     pub retail_sales: f64,
     pub emissions: f64,
     pub abatement: f64,
@@ -141,6 +151,9 @@ pub struct World {
     /// export price (downward-sloping outside demand).
     pub export_volume: f64,
     pub export_price: f32,
+    /// The same for tradable services (offices).
+    pub office_volume: f64,
+    pub office_price: f32,
     /// City-wide land price index and its smoothed growth (per year).
     pub price_index: f64,
     pub price_growth: f64,
@@ -158,7 +171,7 @@ pub struct World {
     /// Share of business job slots (shops, factories) that are filled.
     pub biz_occupancy: f32,
     /// Average workers per shop and per factory.
-    pub firm_size: [f32; 2],
+    pub firm_size: [f32; 3],
     /// Last month's local consumer spending by home cell (net of sales tax),
     /// to be captured by shops this month.
     pub retail_pool: Vec<f32>,
@@ -206,6 +219,8 @@ impl World {
             cycle: 1.0,
             export_volume: 0.0,
             export_price: 1.0,
+            office_volume: 0.0,
+            office_price: 1.0,
             price_index: 1.0,
             price_growth: 0.0,
             rent_index: 1.0,
@@ -216,7 +231,7 @@ impl World {
             latent_demand: 0,
             labour_slack: 1.0,
             biz_occupancy: 0.9,
-            firm_size: [15.0, 15.0],
+            firm_size: [15.0, 15.0, 15.0],
             retail_pool: vec![0.0; n],
             center: 0,
             wage_cache: 0.0,
@@ -332,7 +347,11 @@ impl World {
         self.econ = self.cfg.econ.indexed(self.index);
         // Traffic: the more people commute, the slower (and dearer) every trip.
         let e = &mut self.econ;
+        let n = self.n_alive_hh as f32;
+        e.local_spend_share +=
+            (e.local_spend_max - e.local_spend_share).max(0.0) * n / (n + e.local_spend_scale.max(1.0));
         e.industry_price *= self.export_price;
+        e.office_output_per_worker *= self.office_price;
         let crowd = (self.n_alive_hh as f32 / e.congestion_scale.max(1.0)).powf(e.congestion_elasticity);
         e.commute_cost_per_cell *= 1.0 + crowd;
         self.taxes.set_index(self.index as f64);

@@ -55,6 +55,7 @@ pub fn new_household(w: &mut World, skill: f32) -> Household {
         taxes_paid: 0.0,
         consumption: 0.0,
         wealth: cash,
+        business: 0.0,
         utility: 0.0,
         declare_markup: 1.1,
         generation: 0,
@@ -223,9 +224,16 @@ pub fn emigration(w: &mut World) {
     }
 }
 
-/// Ageing, death and inheritance. The heir continues the household (same
-/// id) with the estate net of estate tax, a fresh job search and a skill that
-/// regresses toward the mean.
+/// Share of an estate's other children who live in the city (and so form
+/// households here); the others' inheritance leaves the city.
+pub const HEIRS_STAYING: f64 = 0.35;
+
+/// Ageing, death and inheritance. One child continues the household (same
+/// id: home, property and businesses), with a skill that regresses toward
+/// the mean. The estate, net of estate tax, is split equally among about two
+/// children: the continuing heir buys the others out of everything but the
+/// businesses (selling property if the cash does not cover it). Siblings who
+/// live here set up their own households; the rest take their share away.
 pub fn demographics(w: &mut World) {
     let p_death = 1.0 / (w.econ.mean_lifetime_years as f64 * 12.0);
     let sigma = w.econ.skill_sigma as f64;
@@ -241,20 +249,51 @@ pub fn demographics(w: &mut World) {
         let estate = w.hh[id].wealth;
         let tax = w.taxes.levy(|m| m.estate(estate));
         w.gov.cash += tax;
-        let child_skill = (0.5 * (w.hh[id].skill as f64).ln() + w.rng.normal() * sigma * 0.85).exp() as f32;
+        let parent_skill = w.hh[id].skill as f64;
+        let child_skill =
+            |rng: &mut crate::rng::Rng| (0.5 * parent_skill.ln() + rng.normal() * sigma * 0.85).exp() as f32;
+        let heir_skill = child_skill(&mut w.rng);
+        // Children: 1 (30%), 2 (45%), 3 (20%) or 4 (5%), about two on average.
+        let u = w.rng.f64();
+        let children = if u < 0.3 {
+            1
+        } else if u < 0.75 {
+            2
+        } else if u < 0.95 {
+            3
+        } else {
+            4
+        };
+        let divisible = (estate - w.hh[id].business - tax).max(0.0);
+        let share = divisible / children as f64;
+        let sibling_skills: Vec<f32> = (1..children).map(|_| child_skill(&mut w.rng)).collect();
         // (Leave the job before the skill changes, so the employer's skill
         // total loses the worker who died, not the heir.)
         crate::labour::fire(w, id as u32);
         let h = &mut w.hh[id];
-        h.cash -= tax;
+        h.cash -= tax + share * (children - 1) as f64;
         h.taxes_paid += tax as f32;
-        h.skill = child_skill;
+        h.skill = heir_skill;
         h.age_months = 25 * 12;
         h.generation = h.generation.saturating_add(1);
         h.effort_cost = (w.rng.lognormal(5.6, 0.7) as f32).min(3000.0);
         h.months_unhappy = 0;
+        let generation = h.generation;
         let cell = if h.home != NONE { h.home } else { w.center as u32 };
         w.flows.deaths += 1;
         w.push_event(Event::Death { cell });
+        for skill in sibling_skills {
+            if w.rng.chance(HEIRS_STAYING) {
+                let mut sibling = new_household(w, skill);
+                sibling.cash = share;
+                sibling.wealth = share;
+                sibling.age_months = 25 * 12;
+                sibling.generation = generation;
+                w.add_household(sibling);
+                w.flows.heirs_settled += 1;
+            } else {
+                w.flows.inheritance_out += share;
+            }
+        }
     }
 }

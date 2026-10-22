@@ -5,6 +5,7 @@
 //! taxsim run     [--preset NAME | --scenario FILE] [--years N] [--seed S] [--size N] [--csv FILE] [--profile]
 //! taxsim compare [--presets a,b,c] [--years N] [--seeds K] [--size N] [--out DIR]
 //! taxsim audit   [--preset NAME] [--years N] [--every N] [--seed S] [--quiet]
+//! taxsim longrun [--presets a,b,c] [--years N] [--seeds K] [--every N] [--size N]
 //! ```
 //! `compare` runs every (preset, seed) pair in parallel on all cores and
 //! prints end-of-run indicators averaged over seeds (paired by seed).
@@ -190,6 +191,116 @@ fn cmd_audit(a: &HashMap<String, String>) {
     }
 }
 
+/// One long run: diagnostics every `every` years and the audit failures.
+struct LongRun {
+    snapshots: Vec<(u32, Vec<sim_core::audit::Diagnostic>)>,
+    failures: Vec<(u32, String)>,
+}
+
+/// Run presets × seeds for many years in parallel and print how each
+/// diagnostic evolves (mean over seeds), the audit failures, and the
+/// indicators that are still drifting at the end of the run.
+fn cmd_longrun(a: &HashMap<String, String>) {
+    let names: Vec<String> = a
+        .get("presets")
+        .map(|s| s.split(',').map(|x| x.to_string()).collect())
+        .unwrap_or_else(|| PRESETS.iter().map(|(n, _)| n.to_string()).collect());
+    let years: u32 = a.get("years").map(|s| s.parse().unwrap()).unwrap_or(300);
+    let seeds: u64 = a.get("seeds").map(|s| s.parse().unwrap()).unwrap_or(2);
+    let every: u32 = a.get("every").map(|s| s.parse().unwrap()).unwrap_or(25);
+    let base = config_from(a);
+    let jobs: Vec<(String, u64)> = names.iter().flat_map(|n| (0..seeds).map(move |s| (n.clone(), s + 1))).collect();
+    let threads = thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    eprintln!("running {} simulations × {years} years on {} threads…", jobs.len(), threads);
+    let results: Vec<(String, u64, LongRun)> = thread::scope(|scope| {
+        let chunks: Vec<Vec<(String, u64)>> =
+            (0..threads).map(|t| jobs.iter().skip(t).step_by(threads).cloned().collect()).collect();
+        let handles: Vec<_> = chunks
+            .into_iter()
+            .map(|chunk| {
+                let base = base.clone();
+                scope.spawn(move || {
+                    chunk
+                        .into_iter()
+                        .map(|(name, seed)| {
+                            let mut cfg = base.clone();
+                            cfg.policy = preset(&name).expect("preset");
+                            cfg.seed = seed;
+                            let mut sim = Simulation::new(cfg);
+                            let mut run = LongRun { snapshots: Vec::new(), failures: Vec::new() };
+                            for year in 1..=years {
+                                sim.run(12);
+                                for s in sim_core::audit::check(&sim.world) {
+                                    run.failures.push((year, s));
+                                }
+                                if year % every == 0 {
+                                    run.snapshots.push((year, sim_core::audit::diagnostics(&sim.world)));
+                                }
+                            }
+                            (name, seed, run)
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        handles.into_iter().flat_map(|h| h.join().unwrap()).collect()
+    });
+    for name in &names {
+        let runs: Vec<&LongRun> = results.iter().filter(|(n, _, _)| n == name).map(|(_, _, r)| r).collect();
+        let Some(first) = runs.first() else { continue };
+        println!("\n=== {name} ({} seeds) ===", runs.len());
+        print!("{:<28}", "year");
+        for (y, _) in &first.snapshots {
+            print!("{y:>9}");
+        }
+        println!();
+        let mean = |k: usize, t: usize| runs.iter().map(|r| r.snapshots[t].1[k].2).sum::<f64>() / runs.len() as f64;
+        let t_end = first.snapshots.len();
+        let mut drifting = Vec::new();
+        for (k, (label, settles, _)) in first.snapshots[0].1.iter().enumerate() {
+            print!("{label:<28}");
+            for t in 0..t_end {
+                let v = mean(k, t);
+                if v.abs() >= 1000.0 {
+                    print!("{v:>9.0}");
+                } else {
+                    print!("{v:>9.2}");
+                }
+            }
+            println!();
+            // Drift: the last snapshot against the one halfway through.
+            if *settles && t_end >= 4 {
+                let (mid, last) = (mean(k, t_end / 2), mean(k, t_end - 1));
+                let change = (last - mid) / mid.abs().max(1e-9);
+                if change.abs() > 0.25 && (last - mid).abs() > 0.5 {
+                    drifting.push(format!("{label} {mid:.2} → {last:.2} ({:+.0}%)", 100.0 * change));
+                }
+            }
+        }
+        let total: usize = runs.iter().map(|r| r.failures.len()).sum();
+        println!("audit failures: {total}");
+        let mut kinds: Vec<(String, u32, usize)> = Vec::new();
+        for r in &runs {
+            for (y, s) in &r.failures {
+                let kind: String = s.chars().filter(|c| !c.is_ascii_digit() && *c != '.').collect();
+                match kinds.iter_mut().find(|k| k.0 == kind) {
+                    Some(k) => k.2 += 1,
+                    None => kinds.push((kind, *y, 1)),
+                }
+            }
+        }
+        for (kind, y, count) in kinds.iter().take(8) {
+            println!("  {count:>4}× (first y{y}) {kind}");
+        }
+        if !drifting.is_empty() {
+            println!("still drifting in the second half:");
+            for d in drifting {
+                println!("  {d}");
+            }
+        }
+    }
+}
+
 /// Indicators reported by `compare`, with display scaling.
 const COMPARE: &[(&str, f64, &str)] = &[
     ("households", 1.0, "households"),
@@ -372,6 +483,7 @@ fn main() {
         "run" => cmd_run(&a),
         "compare" => cmd_compare(&a),
         "audit" => cmd_audit(&a),
+        "longrun" => cmd_longrun(&a),
         "presets" => {
             for (n, d) in PRESETS {
                 println!("{n:<14} {d}");

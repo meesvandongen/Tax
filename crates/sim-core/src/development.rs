@@ -133,6 +133,32 @@ pub enum Decision {
     Build(DevOption),
     /// Restore the existing building to new condition at this cost.
     Renovate(f64),
+    /// Add this many floors (and renovate) at this cost.
+    Extend(u8, f64),
+    /// Redevelopment would pay, but too few flat owners accept the offer.
+    Blocked,
+}
+
+/// Whether enough of a building's dwellings accept a developer's offer of
+/// the flat buyout: the parcel owner's own dwellings say yes; an owner-
+/// occupier says yes if the offer beats what living there is worth to them
+/// plus the cost of moving.
+fn collective_sale_agreed(w: &World, i: usize) -> bool {
+    if w.p.owned_flats[i] == 0 {
+        return true;
+    }
+    let offer = econ::flat_buyout(w, i);
+    let moving = w.econ.relocation_months as f64 * w.p.asking_rent[i] as f64;
+    let mut yes = (w.p.units[i] - w.p.owned_flats[i]) as f64;
+    for (id, h) in w.hh.iter().enumerate() {
+        if h.alive && h.owns_home && h.home == i as u32 {
+            let own = econ::owner_occupier_value(w, i, &w.household_investor(id as u32));
+            if offer >= own + moving {
+                yes += 1.0;
+            }
+        }
+    }
+    yes >= w.cfg.policy.collective_sale_threshold as f64 * w.p.units[i] as f64
 }
 
 pub fn decide(w: &World, i: usize, inv: &econ::Investor) -> Decision {
@@ -147,16 +173,36 @@ pub fn decide(w: &World, i: usize, inv: &econ::Investor) -> Decision {
     } else {
         None
     };
-    let Some(best) = econ::best_development(w, i, inv) else {
-        return renovation.map_or(Decision::Keep, |(_, cost)| Decision::Renovate(cost));
+    // Or floors can be added on top. The parcel owner pays and owns the new
+    // dwellings (flat owners keep theirs, renovated).
+    let extension = econ::best_extension(w, i, inv).and_then(|(add, cost, value)| {
+        let units = econ::units_for(w, w.p.land_use[i], w.p.floors[i] + add) as f64;
+        let share = 1.0 - w.p.owned_flats[i] as f64 / units;
+        let gain = share * value - cur - cost;
+        (gain > 0.1 * cost).then_some((gain, add, cost))
+    });
+    // The better of the two ways to improve the building in place.
+    let in_place = match (renovation, extension) {
+        (Some((rg, rc)), Some((eg, add, ec))) => {
+            Some(if eg > rg { (eg, Decision::Extend(add, ec)) } else { (rg, Decision::Renovate(rc)) })
+        }
+        (Some((rg, rc)), None) => Some((rg, Decision::Renovate(rc))),
+        (None, Some((eg, add, ec))) => Some((eg, Decision::Extend(add, ec))),
+        (None, None) => None,
     };
-    if let Some((gain, cost)) = renovation {
+    let Some(best) = econ::best_development(w, i, inv) else {
+        return in_place.map_or(Decision::Keep, |(_, d)| d);
+    };
+    if let Some((gain, d)) = in_place {
         if gain >= best.residual - cur {
-            return Decision::Renovate(cost);
+            return d;
         }
     }
     if best.residual <= 0.0 || best.residual <= cur * 1.05 {
         return Decision::Keep;
+    }
+    if !collective_sale_agreed(w, i) {
+        return Decision::Blocked;
     }
     // Waiting: the project is worth (1+g) more next year, costs are fixed,
     // meanwhile the parcel earns its interim income (net of holding taxes).
@@ -187,6 +233,41 @@ pub fn run(w: &mut World) {
             Decision::Keep => {
                 if w.p.land_use[i] == LandUse::Vacant {
                     w.p.months_held_empty[i] = w.p.months_held_empty[i].saturating_add(1);
+                }
+            }
+            Decision::Blocked => {
+                w.flows.collective_sales_blocked += 1;
+            }
+            Decision::Extend(add, cost) => {
+                // Financing as for a new building: households need the deposit.
+                let ok = match owner {
+                    Owner::Hh(id) => {
+                        let ltv = e.loan_to_value as f64;
+                        let h = &mut w.hh[id as usize];
+                        if h.cash >= cost * (1.0 - ltv) {
+                            h.cash -= cost * (1.0 - ltv);
+                            w.p.mortgage[i] += (cost * ltv) as f32;
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    Owner::Gov => false,
+                    Owner::Absentee => {
+                        w.flows.absentee_income -= cost;
+                        true
+                    }
+                };
+                if ok {
+                    let u = w.p.land_use[i];
+                    w.p.floors[i] += add;
+                    w.p.units[i] = econ::units_for(w, u, w.p.floors[i]);
+                    w.p.condition[i] = 1.0;
+                    w.p.months_vacant[i] = 0;
+                    w.flows.construction_spend += cost;
+                    w.flows.extensions += 1;
+                    w.flows.floors_built += add as u32;
+                    w.push_event(Event::BuildDone { cell: i as u32 });
                 }
             }
             Decision::Wait => {

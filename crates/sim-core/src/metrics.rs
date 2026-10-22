@@ -23,6 +23,7 @@ pub struct Metrics {
     pub median_income: f32,
     pub gdp: f64,
     pub exports: f64,
+    pub service_exports: f64,
     pub firms: u32,
     pub firms_opened: u32,
     pub firms_closed: u32,
@@ -39,6 +40,9 @@ pub struct Metrics {
     pub owner_occupier_share: f32,
     pub flat_purchases: u32,
     pub flat_sales: u32,
+    pub extensions: u32,
+    pub heirs_settled: u32,
+    pub collective_sales_blocked: u32,
     // --- housing and land
     pub median_rent: f32,
     pub rent_burden: f32,
@@ -276,6 +280,7 @@ pub fn compute(w: &World) -> Metrics {
     m.deaths = f.deaths;
     m.gdp = f.value_added;
     m.exports = f.exports;
+    m.service_exports = f.service_exports;
     m.retail_sales = f.retail_sales;
     m.firms = w.n_alive_firms;
     m.firms_opened = f.firms_opened;
@@ -289,6 +294,9 @@ pub fn compute(w: &World) -> Metrics {
     m.renovations = f.renovations;
     m.flat_purchases = f.flat_purchases;
     m.flat_sales = f.flat_sales;
+    m.extensions = f.extensions;
+    m.heirs_settled = f.heirs_settled;
+    m.collective_sales_blocked = f.collective_sales_blocked;
     m.emissions = f.emissions;
     m.co2_index = (f.emissions + commute_sum * 0.05) as f32;
     m.deterred_workers = f.deterred_workers;

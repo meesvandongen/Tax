@@ -122,16 +122,40 @@ fn comparable_rent(bid: f32, observed: f32, evidence: f32) -> f32 {
 /// they add capacity (they share local spending with competitors, Huff
 /// model); factories' average product falls with scale.
 pub fn firm_bid_rent(w: &World, i: usize, u: LandUse, slots: u16) -> f32 {
+    match u {
+        // Commercial space goes to shops or offices, whichever bids more.
+        LandUse::Commercial => {
+            sector_bid_rent(w, i, Sector::Retail, slots).max(sector_bid_rent(w, i, Sector::Office, slots))
+        }
+        LandUse::Industrial => sector_bid_rent(w, i, Sector::Industry, slots),
+        _ => 0.0,
+    }
+}
+
+/// Whether offices outbid shops for commercial premises of this size here.
+pub fn offices_lead(w: &World, i: usize, slots: u16) -> bool {
+    sector_bid_rent(w, i, Sector::Office, slots) > sector_bid_rent(w, i, Sector::Retail, slots)
+}
+
+/// [`firm_bid_rent`] of a typical firm of one sector.
+pub fn sector_bid_rent(w: &World, i: usize, sector: Sector, slots: u16) -> f32 {
     let e = &w.econ;
     let wage = w.market_wage_rate() * (1.0 + w.taxes.payroll_rate() as f32);
     let k = slots.max(1) as f32;
-    let revenue = match u {
-        LandUse::Commercial => {
+    let revenue = match sector {
+        Sector::Office => {
+            if e.office_output_per_worker <= 0.0 {
+                return 0.0;
+            }
+            let a = e.office_output_per_worker * (1.0 + e.office_agglomeration * (1.0 + w.f.office_access[i]).ln());
+            a * k.powf(e.office_labour_elasticity - 1.0)
+        }
+        Sector::Retail => {
             let s = w.f.retail_supply[i] + crate::fields::OUTSIDE_SHOP_CAPACITY;
             let share = w.f.retail_draw[i] * s / (s + crate::fields::SHOP_REACH_SHARE * k);
             0.92 * share.min(e.retail_output_per_worker)
         }
-        LandUse::Industrial => {
+        Sector::Industry => {
             let a = e.industry_output_per_worker
                 * e.industry_price
                 * cycle_outlook(w)
@@ -181,8 +205,11 @@ pub fn expected_occupancy(w: &World, i: usize, u: LandUse, new_units: u16) -> f6
         occ
     } else {
         let labour = 0.92 * (0.35 + 0.65 * w.labour_slack.min(1.0));
+        // (Offices let floor by floor, or one firm grows into the building:
+        // their returns to scale fall slowly.)
+        let office = u == LandUse::Commercial && offices_lead(w, i, new_units.max(1));
         let typical = if u == LandUse::Commercial { w.firm_size[0] } else { w.firm_size[1] };
-        let fill = if new_units > 0 { (typical / new_units as f32).min(1.0) } else { 1.0 };
+        let fill = if new_units > 0 && !office { (typical / new_units as f32).min(1.0) } else { 1.0 };
         labour.min(occ).min(w.biz_occupancy + 0.05).min(fill)
     };
     // New space competes with what is already being built nearby.
@@ -385,6 +412,43 @@ pub fn owner_occupier_value(w: &World, i: usize, inv: &Investor) -> f64 {
     capitalize(w, &own, i, n, bldg, crate::property::idle_share(w, i)) / units
 }
 
+/// Cost premium for building on top of an existing, occupied building
+/// (strengthening, access, working around residents).
+pub const EXTENSION_PREMIUM: f64 = 1.25;
+/// Floors can be added up to this height (taller needs new foundations).
+pub const EXTENSION_MAX_FLOORS: u8 = 8;
+
+/// Adding floors: the best of putting 1 or 2 floors of the same use on top
+/// of a sound building, renovating the rest at the same time. No
+/// demolition, and the residents stay. Returns (floors added, cost, value of
+/// the whole extended building to `inv`), if any extension adds value.
+pub fn best_extension(w: &World, i: usize, inv: &Investor) -> Option<(u8, f64, f64)> {
+    let p = &w.p;
+    let u = p.land_use[i];
+    if !matches!(u, LandUse::Residential | LandUse::Commercial) || p.condition[i] < 0.5 || !p.road_access[i] {
+        return None;
+    }
+    let floors = p.floors[i];
+    let now = building_in_condition_value(w, i, inv, p.condition[i]);
+    let mut best: Option<(u8, f64, f64)> = None;
+    for add in 1..=2u8 {
+        let to = floors + add;
+        if to > EXTENSION_MAX_FLOORS || !permitted(w, i, u, to) {
+            break;
+        }
+        let bcost = construction_cost(w, i, u, to);
+        let cost = EXTENSION_PREMIUM * (bcost - construction_cost(w, i, u, floors)) + renovation_cost(w, i);
+        let units = units_for(w, u, to);
+        let occ = expected_occupancy(w, i, u, units.saturating_sub(p.units[i]));
+        let n = noi(w, i, u, units, occ, bcost);
+        let value = capitalize(w, inv, i, n, bcost, 1.0 - occ);
+        if value - now - cost > best.map_or(0.0, |b| b.2 - now - b.1) {
+            best = Some((add, cost, value));
+        }
+    }
+    best
+}
+
 /// Best redevelopment option for this parcel from `inv`'s perspective.
 pub fn best_development(w: &World, i: usize, inv: &Investor) -> Option<DevOption> {
     let p = &w.p;
@@ -558,7 +622,7 @@ impl World {
             }
         }
         self.biz_occupancy = if units > 50.0 { occupied / units } else { 0.9 };
-        for (k, sector) in [Sector::Retail, Sector::Industry].into_iter().enumerate() {
+        for (k, sector) in [Sector::Retail, Sector::Industry, Sector::Office].into_iter().enumerate() {
             let (n, workers) = self
                 .firms
                 .iter()

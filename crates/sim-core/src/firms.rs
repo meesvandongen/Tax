@@ -53,6 +53,27 @@ pub fn open_public(w: &mut World, i: usize) {
     }
 }
 
+fn probe_firm(i: usize) -> Firm {
+    Firm {
+        alive: true,
+        sector: Sector::Industry,
+        parcel: i as u32,
+        owner: Owner::Absentee,
+        cash: 0.0,
+        productivity: 1.0,
+        wage_rate: 0.0,
+        workers: 0,
+        skill_sum: 0.0,
+        desired_workers: 0,
+        months_unfilled: 0,
+        months_loss: 0,
+        emission_intensity: 1.0,
+        revenue: 0.0,
+        profit: 0.0,
+        age_months: 0,
+    }
+}
+
 /// Expected monthly profit per job slot for a new firm at `i`.
 fn expected_profit_per_slot(w: &World, i: usize, sector: Sector) -> f32 {
     let wage = w.market_wage_rate() * (1.0 + w.taxes.payroll_rate() as f32);
@@ -83,6 +104,15 @@ fn expected_profit_per_slot(w: &World, i: usize, sector: Sector) -> f32 {
             let em = w.taxes.estimate(|m| m.emission(w.econ.pollution_per_worker as f64)) as f32;
             a * units.powf(w.econ.labour_elasticity) / units - em
         }
+        Sector::Office => {
+            if w.econ.office_output_per_worker <= 0.0 {
+                return f32::NEG_INFINITY;
+            }
+            let probe = Firm { sector, productivity: 1.0, ..probe_firm(i) };
+            let a = crate::labour::office_tfp(w, &probe, i);
+            let units = w.p.units[i].max(1) as f32;
+            a * units.powf(w.econ.office_labour_elasticity) / units
+        }
         Sector::Public => 0.0,
     };
     let pre_tax = gross - wage - rent;
@@ -112,7 +142,18 @@ pub fn entry(w: &mut World) {
         if w.p.firm[i] != NONE || w.p.condition[i] < 0.15 || !w.rng.chance(rate) {
             continue;
         }
-        let pi = expected_profit_per_slot(w, i, sector);
+        // Commercial premises go to a shop or an office, whichever pays.
+        let (sector, pi) = if sector == Sector::Retail {
+            let (shop, office) =
+                (expected_profit_per_slot(w, i, Sector::Retail), expected_profit_per_slot(w, i, Sector::Office));
+            if office > shop {
+                (Sector::Office, office)
+            } else {
+                (Sector::Retail, shop)
+            }
+        } else {
+            (sector, expected_profit_per_slot(w, i, sector))
+        };
         if pi <= required_margin {
             continue;
         }

@@ -242,6 +242,18 @@ export class PolicyPanel {
     );
     root.append(
       slider(
+        'Collective sale threshold',
+        this.policy.collective_sale_threshold ?? 0.8,
+        { min: 0.5, max: 1, step: 0.05, fmt: 'pct' },
+        (v) => {
+          this.policy.collective_sale_threshold = v;
+          this.changed();
+        },
+        'Share of a building\'s flats whose owners must accept a developer\'s offer before a building with owner-occupied flats can be sold and redeveloped. Holdouts are then bought out at the same price. 100% = every owner must agree.',
+      ),
+    );
+    root.append(
+      slider(
         'Land purchase premium',
         sp.purchase_premium ?? 0.25,
         { min: 0, max: 1, step: 0.05, fmt: 'pct' },

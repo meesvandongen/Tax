@@ -48,6 +48,21 @@ pub fn industry_marginal_product(w: &World, f: &Firm) -> f32 {
     e.labour_elasticity * a * s.powf(e.labour_elasticity - 1.0)
 }
 
+/// The same for an office firm.
+pub fn office_marginal_product(w: &World, f: &Firm) -> f32 {
+    let e = &w.econ;
+    let a = office_tfp(w, f, f.parcel as usize);
+    let s = f.skill_sum.max(1.0);
+    e.office_labour_elasticity * a * s.powf(e.office_labour_elasticity - 1.0)
+}
+
+/// Office productivity: services are not tied to the goods cycle, and gain
+/// from jobs of every kind within a short walk.
+pub fn office_tfp(w: &World, f: &Firm, i: usize) -> f32 {
+    let e = &w.econ;
+    e.office_output_per_worker * f.productivity * (1.0 + e.office_agglomeration * (1.0 + w.f.office_access[i]).ln())
+}
+
 pub fn industry_tfp(w: &World, f: &Firm, i: usize) -> f32 {
     let e = &w.econ;
     e.industry_output_per_worker
@@ -82,6 +97,10 @@ pub fn firm_decisions(w: &mut World) {
                 let margin = mp - wage_cost - em_cost;
                 step_toward(workers, margin / wage_cost.max(1.0))
             }
+            Sector::Office => {
+                let margin = office_marginal_product(w, f) * avg_skill - wage_cost;
+                step_toward(workers, margin / wage_cost.max(1.0))
+            }
             Sector::Retail => {
                 let rev_per_worker =
                     // (A shop without a month of trading yet goes by the local draw.)
@@ -98,6 +117,7 @@ pub fn firm_decisions(w: &mut World) {
         let desired = desired.min(capacity).max(if f.sector == Sector::Public { 0 } else { 1 });
         let profitable_margin = match f.sector {
             Sector::Industry => industry_marginal_product(w, f) * avg_skill > wage_cost * 1.03,
+            Sector::Office => office_marginal_product(w, f) * avg_skill > wage_cost * 1.03,
             Sector::Retail => workers == 0 || f.age_months == 0 || f.revenue / workers.max(1) as f32 > wage_cost * 1.03,
             Sector::Public => false,
         };

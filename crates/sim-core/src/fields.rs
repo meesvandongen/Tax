@@ -27,6 +27,9 @@ pub struct Fields {
     pub pollution: Vec<f32>,
     /// Industry jobs nearby (agglomeration).
     pub industry_access: Vec<f32>,
+    /// Jobs of every kind within a short walk: offices gain from being
+    /// downtown, near clients, suppliers and each other.
+    pub office_access: Vec<f32>,
     /// Money-equivalent amenity value per month (parks, water, nature).
     pub amenity: Vec<f32>,
     /// Public-service quality 0..1.
@@ -73,6 +76,7 @@ impl Fields {
             emissions: z(),
             pollution: z(),
             industry_access: z(),
+            office_access: z(),
             amenity: z(),
             service: z(),
             loc_res: z(),
@@ -147,6 +151,7 @@ pub fn update(w: &mut World) {
             Sector::Industry => ind_jobs[i] += f.workers as f32,
             Sector::Retail => retail_cap[i] += f.workers as f32 * f.productivity,
             Sector::Public => public_jobs[i] += f.workers as f32,
+            Sector::Office => {}
         }
     }
     let mut pop = vec![0f32; n];
@@ -184,6 +189,7 @@ pub fn update(w: &mut World) {
     let pub_access = w.mesh.blur(&public_jobs, 5.0);
     let pop_access = w.mesh.blur(&pop, 5.0);
     let industry_access = w.mesh.blur(&ind_jobs, 4.0);
+    let office_access = w.mesh.blur(&jobs, 2.5);
 
     let mut amenity = vec![0f32; n];
     let mut service = vec![0f32; n];
@@ -307,6 +313,7 @@ pub fn update(w: &mut World) {
     f.retail_supply = s_field;
     f.pollution = pollution;
     f.industry_access = industry_access;
+    f.office_access = office_access;
     f.amenity = amenity;
     f.service = service;
     f.loc_res = loc_res;

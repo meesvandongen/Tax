@@ -174,7 +174,7 @@ pub fn decide(w: &World, i: usize, inv: &econ::Investor) -> Decision {
     let renovation = if w.p.land_use[i].is_private_use() && w.p.condition[i] < 0.6 {
         let cost = econ::renovation_cost(w, i);
         let whole = econ::building_in_condition_value(w, i, inv, w.p.condition[i]);
-        let gain = w.p.freehold_share(i) * (econ::building_in_condition_value(w, i, inv, 1.0) - whole - cost);
+        let gain = w.p.freehold_share(i) * (econ::renovated_value(w, i, inv) - whole - cost);
         (gain > 0.1 * cost * w.p.freehold_share(i)).then_some((gain, cost))
     } else {
         None
@@ -271,7 +271,11 @@ pub fn run(w: &mut World) {
                         true
                     }
                 };
-                if ok {
+                if !ok {
+                    crate::land::sell_to_developer(w, i);
+                    continue;
+                }
+                {
                     let u = w.p.land_use[i];
                     w.p.floors[i] += add;
                     w.p.units[i] = econ::units_for(w, u, w.p.floors[i]);
@@ -290,12 +294,16 @@ pub fn run(w: &mut World) {
             }
             Decision::Renovate(cost) => {
                 let own = cost * w.p.freehold_share(i);
+                // Financed like construction: households pay the deposit
+                // and borrow the rest against the building.
                 let ok = match owner {
                     Owner::Hh(id) => {
+                        let ltv = e.loan_to_value as f64;
                         let h = &mut w.hh[id as usize];
-                        let ok = h.cash >= own;
+                        let ok = h.cash >= own * (1.0 - ltv);
                         if ok {
-                            h.cash -= own;
+                            h.cash -= own * (1.0 - ltv);
+                            w.p.mortgage[i] += (own * ltv) as f32;
                         }
                         ok
                     }
@@ -305,7 +313,12 @@ pub fn run(w: &mut World) {
                         true
                     }
                 };
-                if ok {
+                if !ok {
+                    // Can't finance it: sell to someone who can.
+                    crate::land::sell_to_developer(w, i);
+                    continue;
+                }
+                {
                     if w.p.owned_flats[i] > 0 {
                         crate::property::charge_flat_owners(w, i, cost / w.p.units[i] as f64);
                     }

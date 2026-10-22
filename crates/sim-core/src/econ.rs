@@ -355,6 +355,16 @@ pub fn current_use_value(w: &World, i: usize, inv: &Investor) -> f64 {
 /// Value of the whole existing building (freehold and flats) as an income
 /// property if it were in `condition` (0 = derelict, 1 = new).
 pub fn building_in_condition_value(w: &World, i: usize, inv: &Investor, condition: f32) -> f64 {
+    building_value_aged(w, i, inv, condition, w.p.age_months[i])
+}
+
+/// Value of the whole building just after a renovation: new condition, and
+/// half its effective age (see [`OBSOLESCENCE_YEARS`]).
+pub fn renovated_value(w: &World, i: usize, inv: &Investor) -> f64 {
+    building_value_aged(w, i, inv, 1.0, w.p.age_months[i] / 2)
+}
+
+fn building_value_aged(w: &World, i: usize, inv: &Investor, condition: f32, age_months: u32) -> f64 {
     let p = &w.p;
     let u = p.land_use[i];
     let bldg = construction_cost(w, i, u, p.floors[i]) * (0.3 + 0.7 * condition as f64);
@@ -371,7 +381,8 @@ pub fn building_in_condition_value(w: &World, i: usize, inv: &Investor, conditio
     };
     // Rent actually achievable falls with the building's condition, and an
     // old building costs more to keep up.
-    let ageing_cost = upkeep(w, i) - w.econ.maintenance_rate as f64 * construction_cost(w, i, u, p.floors[i]);
+    let ageing_cost =
+        w.econ.maintenance_rate as f64 * construction_cost(w, i, u, p.floors[i]) * (ageing(age_months) - 1.0);
     let n = noi(w, i, u, units, occ, bldg) + (rent_quality(condition) - 1.0) * gross_rent(w, i, u, units, occ)
         - ageing_cost;
     let market = capitalize(w, inv, i, n, bldg, 1.0 - occ);
@@ -602,7 +613,12 @@ pub fn self_consistent_site_value(w: &World, i: usize, inv: &Investor) -> f64 {
 /// What `inv` would pay for the land + building as is, including the option
 /// to redevelop.
 pub fn valuation(w: &World, i: usize, inv: &Investor) -> f64 {
-    let cur = current_use_value(w, i, inv);
+    let mut cur = current_use_value(w, i, inv);
+    // A run-down building is worth at least what it would be renovated.
+    if w.p.land_use[i].is_private_use() && w.p.condition[i] < 0.6 {
+        let share = w.p.freehold_share(i);
+        cur = cur.max(share * (renovated_value(w, i, inv) - renovation_cost(w, i)));
+    }
     match best_development(w, i, inv) {
         // Redevelopment destroys the current building's value.
         Some(d) if d.residual > cur => d.residual,

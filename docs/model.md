@@ -396,40 +396,62 @@ real staff by year 200). Export income per worker grew fourfold, wages fell and 
 
 ## What the model currently says, and how much to trust it
 
-These are 6 seeds × 40 years, from `taxsim compare` (mean ± standard error; see the README), with
-owner-occupied flats. Before flats, outside capital owned almost all land under every preset except Georgist,
-Harberger and the minimal-tax ones (≈ 100% vs ≈ 63–77%); now it owns 29–52% everywhere, and 56–76% of
-households own their home. Differences
-smaller than a couple of standard errors are noise. Over 200 years (seed 1) the status quo, Georgist and
-Harberger presets pass every audit check, and cities settle at roughly 26 000–36 000 households. The Nordic
-preset passes in 6 of 8 seeds over 100 years; in the other two, unemployment briefly exceeds the 25% bound
-during an export slump (a town whose jobs are almost all in export industry, with a single shop or two).
+Two horizons, because cities grow at different speeds under different regimes and a 40-year snapshot can
+mislead. Differences smaller than a couple of standard errors are noise.
 
-* **Georgist** (6% land value tax, dividend):
-  * a larger city than the status quo (≈ 15 100 vs ≈ 11 900 households, about five standard errors), higher
-    output, lower rents and taller buildings;
-  * more land owned by residents (absentee share ≈ 34% vs ≈ 48%) and higher average resident welfare;
-  * but fewer owner-occupiers (≈ 57% vs ≈ 75%): the 6% land tax is a large fixed charge on every flat, and
-    the status quo's surplus rebate leaves tenants more cash for a deposit;
-  * and modest revenue: land rent is small where land is plentiful and buildings are priced near construction
-    cost, so a 6% land tax raises about a third of the status quo's revenue;
-  * and much higher wealth inequality (no income or wealth taxes).
+**After 40 years** (6 seeds, `taxsim compare`, mean ± standard error):
+
+* **Georgist** (6% land value tax, dividend): a much smaller city than the status quo at this point
+  (≈ 25 800 vs ≈ 45 800 households), with higher wages, lower rents, less outside ownership of land
+  (≈ 56% vs ≈ 72%) and higher average resident welfare, but more wealth inequality (no income or wealth taxes)
+  and a fraction of the revenue (≈ 6.9M vs ≈ 75M a month).
+* **Nordic** (high income tax and VAT): the largest city, the lowest inequality, the highest revenue and by far
+  the most deterred workers.
 * **Wealth tax** (2% above 1M): lower wealth inequality than the status quo and more departures of wealthy
-  households, and a slightly smaller city (about two standard errors).
-* **Nordic** (high income tax and VAT): the lowest inequality, the highest revenue and many deterred workers
-  (only the flat tax deters more). In this run it is also one of the largest cities.
-* **Harberger at 4% of total value:** the smallest city, with almost no building above one floor: the
-  self-assessed tax falls on buildings too, so waiting beats building. A mechanism-level warning about COST rates,
-  not a calibrated forecast.
-* **Head tax:** a large but very unequal city with little revenue.
+  households; city size within noise.
+* **Harberger at 4% of total value:** by far the smallest city (≈ 10 100 households) and the lowest buildings:
+  the self-assessed tax falls on buildings too, so waiting beats building. A mechanism-level warning about COST
+  rates, not a calibrated forecast.
+* Owner-occupation is still rising at year 40 (41–47%; 60% under the green preset).
+
+**Over 300 years** (2 seeds, `taxsim longrun`; the other five presets 1 seed over 200 years). Every preset
+settles; the only audit failures are brief unemployment spikes in years 6–12 of the fast early growth of the
+status quo, Nordic and flat-tax towns.
+
+| | status quo | Georgist | Nordic | laissez-faire |
+|---|---|---|---|---|
+| households | 131 000 | 89 000 | 143 000 | 84 000 |
+| mean wage | 3 900 | 5 500 | 3 700 | 5 400 |
+| unemployment | 6.5% | 6% | 14% | 3% |
+| renters' median rent burden | 37% | 23% | 36% | 22% |
+| tallest building (floors) | 22 | 30 | 30 | 30 |
+| dwellings in 5+ floor buildings | 92% | 72% | 96% | 65% |
+| owner-occupiers | 68% | 72% | 72% | 70% |
+| land owned by outside capital | 66% | 43% | 65% | 49% |
+| top 1% wealth share | 3% | 18% | 3% | 22% |
+| largest fortune | 3M | 24M | 3M | 22M |
+| household wealth / yearly output | 2.5 | 3.4 | 2.4 | 3.3 |
+| derelict buildings | 1% | 4% | 2% | 2% |
+
+* The high-revenue regimes (status quo, Nordic, wealth tax, flat tax) grow the largest cities. Public services
+  and transfers keep drawing and keeping people even as wages fall and unemployment rises (14% under Nordic,
+  where taxes and benefits also deter work). The low-tax regimes grow smaller cities with higher wages and
+  lower rent burdens.
+* Every city eventually fills the default map and builds up; the high-tax ones most densely. Offices take
+  13–17% of private jobs and cluster downtown in the tallest buildings.
+* Fortunes level off under every regime now that estates are divided: at about 3M where income, wealth and
+  estate taxes apply, 20–50M where they do not. Wealth totals 2.4–3.4 years of output.
 
 **Known limitations and sensitivities.** Read the results as "what these mechanisms produce", not as forecasts.
 * **Ownership granularity.** Households can own a whole parcel or the single flat they live in. They cannot
   buy flats to let them out (buy-to-let), and only tenants buy, so there is no market for flats between
   households: a flat changes hands through the parcel owner. Flats pay their share of a Harberger tax on the
   owner's declaration, which only covers the parcel owner's share, so flats under Harberger are approximate.
-  Owner-occupation settles high (roughly 70–85%, above most real cities) because the deposit is the only
-  barrier: there is no mortgage approval beyond a payment-to-income cap and no preference for renting.
+  Owner-occupation settles around 65–75% over long runs, at the top of the range of real cities. The deposit,
+  a payment-to-income cap and a 1% premium for tying savings up in one's home are the only barriers; there is no
+  life-cycle (the young renting, then buying) and no mortgage approval beyond the cap.
+* **Unemployment counts everyone without a job.** There is no retirement from work, so the rate includes people
+  who would be retired or inactive in reality; generous welfare and high taxes raise it (14% under Nordic).
 * **Public goods matter a lot.** Service coverage adds up to 380/month of location value, and roads gate
   development. Low-revenue regimes therefore grow less. This is the Henry George mechanism, but its strength is
   a parameter (`fields.rs`: `SERVICE_VALUE`, `PARK_VALUE`, `POLLUTION_COST`).

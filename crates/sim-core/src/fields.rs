@@ -2,7 +2,6 @@
 //! surfaces). Recomputed every tick from the agent state; they are the
 //! "information" agents use when they evaluate locations.
 
-use crate::grid::{exp_blur, smoothed_mean};
 use crate::types::*;
 use crate::world::World;
 
@@ -122,40 +121,17 @@ pub const SHOP_REACH_SHARE: f32 = 0.25;
 /// Public workers per household for full service quality.
 pub const SERVICE_RATIO: f32 = 0.06;
 
-/// Municipal boundary: land within `CITY_MARGIN` cells of urban use.
+/// Municipal boundary: land within `CITY_MARGIN` parcels of urban use.
 pub const CITY_MARGIN: f32 = 4.0;
 
 fn update_city_limits(w: &mut World) {
-    let dims = w.dims;
-    let n = dims.len();
-    let mut d = vec![1e6f32; n];
-    for i in 0..n {
-        let u = w.p.land_use[i];
-        if u.is_urban() && u != LandUse::Water {
-            d[i] = 0.0;
-        }
-    }
-    for _ in 0..2 {
-        for i in 0..n {
-            for j in dims.neighbors4(i) {
-                d[i] = d[i].min(d[j] + 1.0);
-            }
-        }
-        for i in (0..n).rev() {
-            for j in dims.neighbors4(i) {
-                d[i] = d[i].min(d[j] + 1.0);
-            }
-        }
-    }
-    for i in 0..n {
-        w.p.in_city[i] = d[i] <= CITY_MARGIN;
-    }
+    let urban = (0..w.p.len()).filter(|&i| w.p.land_use[i].is_urban() && w.p.land_use[i] != LandUse::Water);
+    w.p.in_city = w.mesh.within_steps(urban, CITY_MARGIN as u32);
 }
 
 pub fn update(w: &mut World) {
     update_city_limits(w);
-    let dims = w.dims;
-    let n = dims.len();
+    let n = w.mesh.len();
     let e = w.econ.clone();
     let p = &w.p;
 
@@ -184,30 +160,30 @@ pub fn update(w: &mut World) {
 
     // ---- accessibility: soft-min distance to jobs
     let la = e.access_decay_cells;
-    let job_access = exp_blur(&jobs, dims, la);
+    let job_access = w.mesh.blur(&jobs, la);
     let total_jobs: f32 = jobs.iter().sum::<f32>().max(1.0);
     let commute_eff: Vec<f32> =
-        job_access.iter().map(|&j| (-la * (j / total_jobs).max(1e-9).ln()).clamp(0.0, 4.0 * dims.w as f32)).collect();
+        job_access.iter().map(|&j| (-la * (j / total_jobs).max(1e-9).ln()).clamp(0.0, 4.0 * w.dims.w as f32)).collect();
 
     // ---- retail: Huff gravity model
     let shop_lambda = SHOP_LAMBDA;
-    let s_field = exp_blur(&retail_cap, dims, shop_lambda);
+    let s_field = w.mesh.blur(&retail_cap, shop_lambda);
     let ratio: Vec<f32> = spend.iter().zip(&s_field).map(|(c, s)| c / (s + OUTSIDE_SHOP_CAPACITY)).collect();
-    let retail_draw = exp_blur(&ratio, dims, shop_lambda);
+    let retail_draw = w.mesh.blur(&ratio, shop_lambda);
 
     // ---- pollution and amenities
     let lp = e.pollution_decay_cells;
     let mp = kernel_mass(lp);
-    let pollution: Vec<f32> = exp_blur(&w.f.emissions, dims, lp).iter().map(|v| v / mp).collect();
+    let pollution: Vec<f32> = w.mesh.blur(&w.f.emissions, lp).iter().map(|v| v / mp).collect();
     let lam = e.amenity_decay_cells;
     let ma = kernel_mass(lam);
     let parks: Vec<f32> = (0..n).map(|i| (p.land_use[i] == LandUse::Park) as u8 as f32).collect();
-    let park_frac = exp_blur(&parks, dims, lam);
+    let park_frac = w.mesh.blur(&parks, lam);
     let nature_src: Vec<f32> = (0..n).map(|i| if p.land_use[i] == LandUse::Park { 0.0 } else { p.nature[i] }).collect();
-    let nature_frac = exp_blur(&nature_src, dims, lam);
-    let pub_access = exp_blur(&public_jobs, dims, 5.0);
-    let pop_access = exp_blur(&pop, dims, 5.0);
-    let industry_access = exp_blur(&ind_jobs, dims, 4.0);
+    let nature_frac = w.mesh.blur(&nature_src, lam);
+    let pub_access = w.mesh.blur(&public_jobs, 5.0);
+    let pop_access = w.mesh.blur(&pop, 5.0);
+    let industry_access = w.mesh.blur(&ind_jobs, 4.0);
 
     let mut amenity = vec![0f32; n];
     let mut service = vec![0f32; n];
@@ -263,8 +239,8 @@ pub fn update(w: &mut World) {
     let mut biz_obs = [vec![0f32; n], vec![0f32; n]];
     let mut biz_evid = [vec![0f32; n], vec![0f32; n]];
     for k in 0..2 {
-        biz_obs[k] = smoothed_mean(&biz_rent[k], &biz_wt[k], dims, 4.0, 0.0);
-        let thin = exp_blur(&biz_wt[k], dims, 4.0);
+        biz_obs[k] = w.mesh.smoothed_mean(&biz_rent[k], &biz_wt[k], 4.0, 0.0);
+        let thin = w.mesh.blur(&biz_wt[k], 4.0);
         for i in 0..n {
             biz_evid[k][i] = thin[i] / (thin[i] + 4.0);
         }
@@ -280,9 +256,9 @@ pub fn update(w: &mut World) {
     let f = &mut w.f;
     f.level_res = global(&d_res, &wt_res, f.level_res);
     let lr = 6.0;
-    let lvl_res = smoothed_mean(&d_res, &wt_res, dims, lr, f.level_res);
+    let lvl_res = w.mesh.smoothed_mean(&d_res, &wt_res, lr, f.level_res);
     // Blend local level with the global one where observations are thin.
-    let thin = exp_blur(&wt_res, dims, lr);
+    let thin = w.mesh.blur(&wt_res, lr);
     let lo = 4.0;
     for i in 0..n {
         let a = (thin[i] / (thin[i] + lo)).min(1.0);
@@ -304,13 +280,13 @@ pub fn update(w: &mut World) {
     }
     let [p0, p1, p2] = pipe;
     let f = &mut w.f;
-    f.pipeline_res = exp_blur(&p0, dims, 3.0);
-    f.pipeline_com = exp_blur(&p1, dims, 3.0);
-    f.pipeline_ind = exp_blur(&p2, dims, 3.0);
+    f.pipeline_res = w.mesh.blur(&p0, 3.0);
+    f.pipeline_com = w.mesh.blur(&p1, 3.0);
+    f.pipeline_ind = w.mesh.blur(&p2, 3.0);
     let lo_occ = 3.0;
     for k in 0..3 {
-        let u = exp_blur(&unit_src[k], dims, lo_occ);
-        let o = exp_blur(&occ_src[k], dims, lo_occ);
+        let u = w.mesh.blur(&unit_src[k], lo_occ);
+        let o = w.mesh.blur(&occ_src[k], lo_occ);
         let (occ_out, units_out) = match k {
             0 => (&mut f.occ_res, &mut f.units_res),
             1 => (&mut f.occ_com, &mut f.units_com),
@@ -363,5 +339,5 @@ pub fn residential_quality(w: &World, i: usize) -> f32 {
 }
 
 pub fn commute_cost(w: &World, home: usize, job_parcel: usize) -> f32 {
-    w.econ.commute_cost_per_cell * w.dims.manhattan(home, job_parcel)
+    w.econ.commute_cost_per_cell * w.mesh.route_dist(home, job_parcel)
 }

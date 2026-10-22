@@ -31,6 +31,16 @@ interface Exports {
   snap_commuters_len(): number;
   snap_heights_ptr(): number;
   snap_heights_len(): number;
+  snap_mesh_verts_ptr(): number;
+  snap_mesh_verts_len(): number;
+  snap_mesh_quads_ptr(): number;
+  snap_mesh_quads_len(): number;
+  snap_mesh_adj_ptr(): number;
+  snap_mesh_adj_len(): number;
+  snap_vert_heights_ptr(): number;
+  snap_vert_heights_len(): number;
+  snap_pixel_cells_ptr(): number;
+  snap_pixel_cells_len(): number;
 }
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
@@ -72,7 +82,15 @@ function create(config: unknown) {
   lastSentTick = 0;
   pendingEvents = [];
   x.sim_snapshot(0);
-  const heights = new Float32Array(x.memory.buffer, x.snap_heights_ptr(), x.snap_heights_len()).slice();
+  const buf = x.memory.buffer;
+  const heights = new Float32Array(buf, x.snap_heights_ptr(), x.snap_heights_len()).slice();
+  const mesh = {
+    verts: new Float32Array(buf, x.snap_mesh_verts_ptr(), x.snap_mesh_verts_len()).slice(),
+    quads: new Uint32Array(buf, x.snap_mesh_quads_ptr(), x.snap_mesh_quads_len()).slice(),
+    adj: new Uint32Array(buf, x.snap_mesh_adj_ptr(), x.snap_mesh_adj_len()).slice(),
+    vertHeights: new Float32Array(buf, x.snap_vert_heights_ptr(), x.snap_vert_heights_len()).slice(),
+    pixelCells: new Uint32Array(buf, x.snap_pixel_cells_ptr(), x.snap_pixel_cells_len()).slice(),
+  };
   const cfg = JSON.parse(readOut(x.sim_config_json()));
   post(
     {
@@ -80,11 +98,12 @@ function create(config: unknown) {
       width: x.sim_width(),
       height: x.sim_height(),
       heights,
+      mesh,
       overlays: JSON.parse(readOut(x.sim_overlays_json())),
       presets: JSON.parse(readOut(x.sim_presets_json())),
       config: cfg,
     },
-    [heights.buffer],
+    [heights.buffer, mesh.verts.buffer, mesh.quads.buffer, mesh.adj.buffer, mesh.vertHeights.buffer, mesh.pixelCells.buffer],
   );
   sendMetrics();
   sendFrame();

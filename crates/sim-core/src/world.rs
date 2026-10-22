@@ -3,6 +3,7 @@
 use crate::config::{EconParams, SimConfig};
 use crate::fields::Fields;
 use crate::grid::Dims;
+use crate::mesh::Mesh;
 use crate::metrics::Metrics;
 use crate::rng::Rng;
 use crate::tax::TaxSystem;
@@ -60,8 +61,10 @@ pub struct Government {
     pub welfare_level: f64,
     /// Fraction of public job capacity funded.
     pub public_staffing: f64,
+    /// Road parcels laid, and how many road projects they came in.
     pub roads_built: u32,
-    /// Road cells laid through expropriated buildings.
+    pub road_projects: u32,
+    /// Road parcels laid through buildings the government bought.
     pub roads_expropriated: u32,
     pub parks_built: u32,
 }
@@ -111,6 +114,9 @@ pub struct World {
     pub econ: EconParams,
     /// Level of outside productivity and prices, `(1 + outside_growth)^year`.
     pub index: f32,
+    /// The parcels: an irregular quad mesh. Parcel `i` is mesh cell `i`.
+    pub mesh: Mesh,
+    /// The square raster under the mesh that spatial fields are blurred on.
     pub dims: Dims,
     pub tick: u64,
     pub rng: Rng,
@@ -163,8 +169,9 @@ impl World {
     pub fn new(cfg: SimConfig) -> World {
         let dims = Dims { w: cfg.width.max(16), h: cfg.height.max(16) };
         let mut rng = Rng::new(cfg.seed);
-        let terrain = Terrain::generate(dims, &mut rng);
-        let n = dims.len();
+        let mesh = Mesh::generate(dims.w, dims.h, &mut rng);
+        let terrain = Terrain::generate(&mesh, &mut rng);
+        let n = mesh.len();
         let mut p = Parcels::new(n);
         for i in 0..n {
             if terrain.water[i] {
@@ -177,6 +184,7 @@ impl World {
         }
         let taxes = TaxSystem::new(&cfg.policy.taxes);
         let mut w = World {
+            mesh,
             dims,
             tick: 0,
             rng,

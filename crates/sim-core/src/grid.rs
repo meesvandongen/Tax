@@ -1,11 +1,12 @@
-//! Grid geometry helpers and fast spatial fields.
+//! The field raster and fast spatial fields.
 //!
 //! Spatial interactions (job accessibility, market potential, pollution,
-//! amenities) are computed as convolutions of a source grid with an
+//! amenities) are computed as convolutions of a source raster with an
 //! exponential distance-decay kernel `a^(|dx|+|dy|)`. Because the kernel is
 //! separable and exponential it can be evaluated with a forward/backward
-//! recursive filter in O(cells), independent of the decay length. The
-//! Manhattan metric matches the grid street network commuters use.
+//! recursive filter in O(cells), independent of the decay length. Parcels
+//! live on an irregular mesh ([`crate::mesh`]); it splats parcel values onto
+//! this raster and samples the blurred result back.
 
 #[derive(Clone, Copy, Debug)]
 pub struct Dims {
@@ -35,44 +36,6 @@ impl Dims {
         let (ax, ay) = self.xy(a);
         let (bx, by) = self.xy(b);
         (ax.abs_diff(bx) + ay.abs_diff(by)) as f32
-    }
-    /// 4-neighbourhood.
-    pub fn neighbors4(&self, i: usize) -> impl Iterator<Item = usize> {
-        let (x, y) = self.xy(i);
-        let w = self.w;
-        let h = self.h;
-        let mut out = [usize::MAX; 4];
-        if x > 0 {
-            out[0] = i - 1;
-        }
-        if x + 1 < w {
-            out[1] = i + 1;
-        }
-        if y > 0 {
-            out[2] = i - w;
-        }
-        if y + 1 < h {
-            out[3] = i + w;
-        }
-        out.into_iter().filter(|&n| n != usize::MAX)
-    }
-    /// All cells within Chebyshev radius r (excluding i).
-    pub fn ring(&self, i: usize, r: usize) -> Vec<usize> {
-        let (x, y) = self.xy(i);
-        let mut v = Vec::with_capacity((2 * r + 1) * (2 * r + 1));
-        let x0 = x.saturating_sub(r);
-        let y0 = y.saturating_sub(r);
-        let x1 = (x + r).min(self.w - 1);
-        let y1 = (y + r).min(self.h - 1);
-        for yy in y0..=y1 {
-            for xx in x0..=x1 {
-                let j = self.idx(xx, yy);
-                if j != i {
-                    v.push(j);
-                }
-            }
-        }
-        v
     }
 }
 
@@ -124,16 +87,6 @@ fn two_sided(x: &mut [f32], scratch: &mut [f32], a: f32) {
         x[i] = scratch[i] + a * back;
         back = xi + a * back;
     }
-}
-
-/// Weighted local mean: blur(values·weights) / blur(weights). Cells with
-/// negligible weight fall back to `fallback`.
-pub fn smoothed_mean(values: &[f32], weights: &[f32], dims: Dims, lambda: f32, fallback: f32) -> Vec<f32> {
-    let mut num: Vec<f32> = values.iter().zip(weights).map(|(v, w)| v * w).collect();
-    let mut den = weights.to_vec();
-    exp_blur_in_place(&mut num, dims, lambda);
-    exp_blur_in_place(&mut den, dims, lambda);
-    num.iter().zip(&den).map(|(n, d)| if *d > 1e-3 { n / d } else { fallback }).collect()
 }
 
 #[cfg(test)]

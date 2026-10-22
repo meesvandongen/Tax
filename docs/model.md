@@ -10,15 +10,25 @@ contradict the literature.
 
 ## World
 
-* A grid of parcels (default 128 × 128, one cell ≈ 40 m). Procedural terrain: hills, a meandering river, and
-  sometimes a coast. It also has soil fertility and initial vegetation (forest and meadow). Water is unbuildable;
-  slope raises construction cost.
+* An irregular grid of quadrilateral parcels, built the way Townscaper builds its grid (`mesh.rs`): a
+  triangular lattice over the map, random pairs of neighbouring triangles merged into quads, every polygon split
+  into quads, and the corners relaxed until each quad is as square as its neighbours allow. A 128 × 128 map has
+  about 16 600 parcels of about one cell (≈ 40 m) each. Every parcel has at most four edge neighbours, but rows
+  of parcels meander and meet at three- to six-way corners, so streets that follow them curve.
+* Procedural terrain: hills, a meandering river, and sometimes a coast, as continuous functions sampled at
+  parcel centres and corners. It also has soil fertility and initial vegetation (forest and meadow). Water is
+  unbuildable; slope raises construction cost.
+* Spatial interactions (job access, shopping, pollution, amenities) are exponential-decay convolutions on a
+  square raster under the mesh (one raster cell per map cell): parcel values are splatted onto the raster,
+  blurred and sampled back at each parcel's centroid. Commutes are straight-line distance times 1.27, the mean
+  detour of a street network (4/π for a grid).
 * Land uses: wild, farm, vacant, road, residential, commercial, industrial, park, civic, construction.
-* Streets follow a planned grid with 5-cell spacing. The grid lines are a reserved right-of-way: nothing private
-  is built on them, so the network can always be extended. A street serves the lots up to two cells away along
-  it, so every cell of a block has access.
-* The founding settlement is a river crossing with a few streets, homes, shops, workshops, a town hall and about
-  400 households, nearly all employed. Everything after that grows from agent decisions.
+* Roads are parcels. A street serves the parcels up to two steps away across parcel edges (the lots fronting it
+  and the lots behind them). No land is reserved for future streets: owners may build anywhere their parcel has
+  access, and the government buys the land when it lays a road (see Government).
+* The founding settlement is a river crossing: main roads out of the centre along the cheapest routes over the
+  mesh (bridging the river), a ring street, homes, shops, workshops, a town hall and about 400 households,
+  nearly all employed. Everything after that grows from agent decisions.
 * Time step: one month. Indicators are recorded every tick.
 * **Money of the day.** The outside world grows by `outside_growth` a year. Every money-denominated parameter
   (wages, construction and demolition costs, farm rents, amenity and service values, commute costs, road costs,
@@ -225,15 +235,29 @@ includes the point (condition 0.12) below which nobody new will rent a dwelling.
 * **Services:** staff civic buildings, and build a new one when the budget could staff more than the existing
   and planned buildings hold, residents need more staff, and it can be paid for within the debt limit. Coverage
   adds value to nearby locations.
-* **Roads:** extend the block grid where it unlocks the most rent potential, but only while serviced idle land
-  that is worth building on is scarce relative to construction activity.
-  * The grid is a **mapped street plan** (an official map, like Manhattan's 1811 grid): every fifth row and
-    column through the founding crossing. Owners may farm land on it but not build there, and it is exempt from
-    property taxes until the road comes. The government then buys it at its assessed (as-if-unreserved) value.
-  * A building in the way, one that predates the plan, can be **expropriated** with full compensation: market
-    value, demolition and the tenants' relocation payments. That makes it much more expensive than open land,
-    so the planner chooses it only when nothing cheaper unlocks as much land.
-* **Parks:** buy land at market price where many residents lack park access (never on the street plan).
+* **Roads** (`roads.rs`) are planned each quarter as projects: chains of up to 18 parcels branching off the
+  network.
+  * **When:** only while serviced land is short (fewer parcels with street access that a developer would build
+    on at a profit than about two years of construction starts), and only projects whose **benefit/cost ratio**
+    is at least 1. The benefit is the land value the road creates: the newly served parcels' value as building
+    land (untaxed, as if vacant) minus their value as farmland. By the Henry George theorem this is also what a
+    land value tax can recover. Projects are funded best ratio first, without overlapping each other's served
+    land, until they cover the shortfall or the road fund runs out. If the best project is not yet affordable
+    but the fund will reach it within a year, the planner saves up for it instead of building a worse one.
+  * **What:** routes are least-cost paths over the parcel mesh. Each parcel costs its purchase, demolition and
+    tenant compensation if built on, and construction (more on slopes, ten times more for a bridge); turning
+    off a row of parcels costs extra, so streets follow the mesh's flowing rows. A new street touches the
+    network only where it branches off (no parallel streets, no paved blocks). One search from the whole
+    network prices a route to every parcel. Routes are screened by the land value they would unlock, estimated
+    from what serviced land nearby is assessed at, per unit of cost; the 24 most promising are priced exactly
+    and the best are built.
+  * **Buying the land:** nothing is reserved in advance. The government buys every parcel on the route, before
+    laying any of it (so owners are paid the value without the scheme, as compulsory-purchase law prescribes),
+    at the owner's valuation or the assessment if higher, **plus a premium** (`purchase_premium`, 25% by
+    default). A building in the way is bought the same way; the government then compensates its tenants and
+    demolishes it. That makes buildings far more expensive than open land, so routes bend around them, but a
+    street can still break out through a built-up edge when the land beyond is worth it.
+* **Parks:** buy land at market price plus the purchase premium where many residents lack park access.
 * Road and park funds accumulate; what is left after the month's works is capped at three years of allocations.
 * **Dividend:** equal per household. **Welfare:** a top-up with 50% withdrawal, extra for the unhoused, at the
   highest level the welfare budget can pay for.
@@ -298,7 +322,7 @@ includes the point (condition 0.12) below which nobody new will rent a dwelling.
 * no household holds absurd cash, and land prices stay finite and do not swing more than threefold within five
   years (after the founding period);
 * bookkeeping: no parcel or firm belongs to a household that has left, every firm's head count and skill total
-  match the households it employs, and no building blocks a planned street.
+  match the households it employs, and every road parcel is connected to the network.
 
 The citywide land price index can stay calm while individual parcels boom and bust. So the test suite also
 follows every taxable parcel's assessment for 50 years in a mature Georgist city: 90% of valuable parcels must
@@ -309,7 +333,7 @@ full-size map, and parcels worth millions were reassessed near zero for a year.
 An earlier version failed these badly on long runs. Outside owners paid any tax out of nowhere, land was assessed
 from fictional bid-rents, shops could sell any amount per worker, and the road network froze. A 500-year Georgist
 run ended with 26 households, empty commercial towers and tax revenue growing without bound. The mechanisms above
-(tax default, as-if-vacant assessment, shop capacity, observed business rents, street right-of-way, congestion and
+(tax default, as-if-vacant assessment, shop capacity, observed business rents, road planning, congestion and
 export demand) are the fixes. A bookkeeping bug did similar damage more quietly: when a worker died, their
 employer's skill total lost the heir's skill instead of theirs, so factories built up phantom skill (1.9× their
 real staff by year 200). Export income per worker grew fourfold, wages fell and the surplus went to owners.
@@ -317,20 +341,22 @@ real staff by year 200). Export income per worker grew fourfold, wages fell and 
 ## What the model currently says, and how much to trust it
 
 These are 6 seeds × 40 years, from `taxsim compare` (mean ± standard error; see the README). Differences
-smaller than a couple of standard errors are noise. All presets also pass every audit check over 300 years
-(seed 1), and the Georgist preset for 500 years; cities settle at roughly 26 000–40 000 households.
+smaller than a couple of standard errors are noise. Over 200 years (seed 1) the status quo, Georgist and
+Harberger presets pass every audit check, and cities settle at roughly 26 000–36 000 households. The Nordic
+preset passes in 6 of 8 seeds over 100 years; in the other two, unemployment briefly exceeds the 25% bound
+during an export slump (a town whose jobs are almost all in export industry, with a single shop or two).
 
 * **Georgist** (6% land value tax, dividend):
-  * a larger city than the status quo (≈ 9 600 vs ≈ 8 000 households, about two standard errors), higher
-    output, slightly lower rents and taller buildings;
-  * more land owned by residents (absentee share ≈ 72% vs ≈ 100%) and much higher average resident welfare;
+  * a larger city than the status quo (≈ 13 700 vs ≈ 11 700 households, about three standard errors), higher
+    output, lower rents and taller buildings;
+  * more land owned by residents (absentee share ≈ 73% vs ≈ 100%) and much higher average resident welfare;
   * but modest revenue: land rent is small where land is plentiful and buildings are priced near construction
     cost, so a 6% land tax raises about a third of the status quo's revenue;
   * and much higher wealth inequality (no income or wealth taxes).
 * **Wealth tax** (2% above 1M): lower wealth inequality than the status quo and more departures of wealthy
   households. City size is within noise.
-* **Nordic** (high income tax and VAT): the lowest inequality, the highest revenue and the most deterred workers.
-  In this run it is also one of the largest cities.
+* **Nordic** (high income tax and VAT): the lowest inequality, the highest revenue and many deterred workers
+  (only the flat tax deters more). In this run it is also one of the largest cities.
 * **Harberger at 4% of total value:** the smallest city, with almost no building above one floor: the
   self-assessed tax falls on buildings too, so waiting beats building. A mechanism-level warning about COST rates,
   not a calibrated forecast.
@@ -352,7 +378,9 @@ smaller than a couple of standard errors are noise. All presets also pass every 
 * **City size** is set by congestion and the outside demand for exports (`congestion_scale`,
   `export_market_size`). Without them agglomeration makes the city fill the map.
 * **Not modelled:** monetary policy, credit cycles beyond simple mortgages, international trade beyond a single
-  export good, local traffic congestion (commutes are Manhattan distance with a city-wide congestion factor),
+  export good, local traffic congestion and the street network's actual shape (commutes are straight-line
+  distance times a fixed detour factor, with a city-wide congestion factor, so roads add value by unlocking land
+  rather than by shortening trips),
   multiple competing municipalities, and political feedback.
 * **Calibration** targets the stylized facts in the research notes (vacancy 3–10%, rent burden 25–35%,
   income Gini 0.2–0.5) loosely, by hand. A systematic calibration with `taxsim` sweeps is future work.

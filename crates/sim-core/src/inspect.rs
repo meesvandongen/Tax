@@ -11,7 +11,7 @@ pub fn parcel(w: &World, i: usize) -> Value {
         return Value::Null;
     }
     let p = &w.p;
-    let (x, y) = w.dims.xy(i);
+    let [x, y] = w.mesh.centroid[i];
     let owner = match p.owner[i] {
         Owner::Absentee => json!({"kind": "absentee"}),
         Owner::Gov => json!({"kind": "government"}),
@@ -77,7 +77,6 @@ pub fn parcel(w: &World, i: usize) -> Value {
         "elevation": w.terrain.height[i],
         "in_city": p.in_city[i],
         "road_access": p.road_access[i],
-        "street_reserve": crate::government::reserved_for_street(w, i),
         "assessed_land": p.assessed_land[i],
         "assessed_building": p.assessed_bldg[i],
         "declared": p.declared[i],

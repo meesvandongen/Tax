@@ -255,3 +255,21 @@ pub extern "C" fn snap_heights_ptr() -> *const f32 {
 pub extern "C" fn snap_heights_len() -> usize {
     with(|s| s.snap.heights.len())
 }
+
+macro_rules! buffer {
+    ($ptr:ident, $len:ident, $field:ident, $t:ty) => {
+        #[no_mangle]
+        pub extern "C" fn $ptr() -> *const $t {
+            with(|s| s.snap.$field.as_ptr())
+        }
+        #[no_mangle]
+        pub extern "C" fn $len() -> usize {
+            with(|s| s.snap.$field.len())
+        }
+    };
+}
+buffer!(snap_mesh_verts_ptr, snap_mesh_verts_len, mesh_verts, f32);
+buffer!(snap_mesh_quads_ptr, snap_mesh_quads_len, mesh_quads, u32);
+buffer!(snap_mesh_adj_ptr, snap_mesh_adj_len, mesh_adj, u32);
+buffer!(snap_vert_heights_ptr, snap_vert_heights_len, vert_heights, f32);
+buffer!(snap_pixel_cells_ptr, snap_pixel_cells_len, pixel_cells, u32);

@@ -3,8 +3,9 @@
 //! accidents of implementation. (See docs/research/economics.md §7.)
 
 use sim_core::econ::{best_development, Investor};
+use sim_core::roads;
 use sim_core::tax::{TaxSpec, TaxSystem};
-use sim_core::types::LandUse;
+use sim_core::types::{LandUse, Owner};
 use sim_core::world::World;
 use sim_core::{SimConfig, Simulation};
 
@@ -184,54 +185,101 @@ fn retail_sales_per_worker_are_bounded() {
     }
 }
 
+/// The government buys the land for public works at the owner's valuation
+/// (or the assessment, if higher) plus the purchase premium.
 #[test]
-fn private_development_keeps_the_street_plan_free() {
-    let cfg = SimConfig { seed: 7, width: 96, height: 96, ..Default::default() };
-    let mut sim = Simulation::new(cfg);
-    let on_plan = |w: &World| -> Vec<usize> {
-        (0..w.p.len())
-            .filter(|&i| sim_core::government::on_street_plan(w, i))
-            .filter(|&i| w.p.land_use[i].is_building() || w.p.land_use[i] == LandUse::Construction)
-            .collect()
-    };
-    let founding = on_plan(&sim.world);
-    sim.run(120);
-    let w = &sim.world;
-    for i in on_plan(w) {
-        assert!(
-            founding.contains(&i) || w.p.owner[i] == sim_core::types::Owner::Gov,
-            "private building on the street plan at {i}"
-        );
-    }
-    assert!(w.gov.roads_built > 0);
-}
-
-#[test]
-fn roads_expropriate_buildings_in_the_way_at_full_compensation() {
+fn public_works_buy_land_at_a_premium() {
     let mut sim = grown_city(48);
     let w = &mut sim.world;
-    // Put a building on every open end of the street plan.
-    let ends: Vec<usize> = (0..w.p.len())
-        .filter(|&i| sim_core::government::reserved_for_street(w, i))
-        .filter(|&i| w.dims.neighbors4(i).any(|j| w.p.land_use[j] == LandUse::Road))
+    let premium = 1.0 + w.cfg.policy.spending.purchase_premium as f64;
+    assert!(premium > 1.0);
+    let i = (0..w.p.len())
+        .find(|&i| matches!(w.p.owner[i], Owner::Hh(_)) && w.p.land_use[i] == LandUse::Residential)
+        .expect("a resident-owned home");
+    let Owner::Hh(id) = w.p.owner[i] else { unreachable!() };
+    let value = sim_core::econ::valuation(w, i, &w.household_investor(id)).max(w.parcel_value(i));
+    let (cash, debt) = (w.hh[id as usize].cash, w.p.mortgage[i] as f64);
+    let paid = sim_core::land::compulsory_purchase(w, i);
+    assert!((paid - premium * value).abs() < 1.0, "paid {paid:.0}, owner values it at {value:.0}");
+    assert!(
+        (w.hh[id as usize].cash - cash - (paid - debt)).abs() < 1.0,
+        "the owner receives the price net of the mortgage"
+    );
+    assert_eq!(w.p.owner[i], Owner::Gov);
+}
+
+/// Roads come in projects that pay for themselves: the planner builds only
+/// when serviced land is short, and only projects whose unlocked land value
+/// exceeds their cost.
+#[test]
+fn roads_are_built_when_land_is_short_and_they_pay() {
+    let mut sim = grown_city(60);
+    let w = &mut sim.world;
+    w.tick -= w.tick % 3; // a planning month
+    w.gov.infra_budget = 1e9;
+    // Plenty of serviced land: nothing to do.
+    w.gov.starts_ema = -10.0;
+    assert!(roads::land_shortfall(w) <= 0.0);
+    let before = w.gov.roads_built;
+    roads::plan(w, 1e6);
+    assert_eq!(w.gov.roads_built, before, "built roads although serviced land was plentiful");
+    // Land is short: the best projects that pay are built.
+    w.gov.starts_ema = 100.0;
+    let best = roads::candidates(w, 1e12);
+    assert!(best.iter().any(|p| p.ratio() >= roads::MIN_RETURN), "no project pays in a growing city");
+    assert!(best.windows(2).all(|p| p[0].ratio() >= p[1].ratio()));
+    let projects = w.gov.road_projects;
+    roads::plan(w, 1e6);
+    assert!(w.gov.road_projects > projects);
+    let first = &best[0].path;
+    assert!(first.iter().all(|&i| w.p.land_use[i] == LandUse::Road), "the best project was not built");
+    assert_eq!(roads::disconnected(w), 0);
+}
+
+/// A road may have to go through a building: the government buys it at its
+/// valuation plus the premium, compensates the tenants and demolishes it.
+#[test]
+fn roads_through_buildings_pay_full_compensation() {
+    let mut sim = grown_city(60);
+    let w = &mut sim.world;
+    // Wall the whole network in with houses.
+    let frontage: Vec<usize> = (0..w.p.len())
+        .filter(|&i| matches!(w.p.land_use[i], LandUse::Wild | LandUse::Farm | LandUse::Vacant))
+        .filter(|&i| w.mesh.neighbors(i).any(|j| w.p.land_use[j] == LandUse::Road))
         .collect();
-    assert!(!ends.is_empty());
-    for &i in &ends {
+    assert!(!frontage.is_empty());
+    for &i in &frontage {
         w.p.land_use[i] = LandUse::Residential;
         w.p.floors[i] = 1;
         w.p.units[i] = sim_core::econ::units_for(w, LandUse::Residential, 1);
         w.p.condition[i] = 1.0;
     }
     sim_core::land::assess(w, true);
-    // Plenty of money and demand for land.
-    w.gov.infra_budget = 1e9;
-    w.gov.starts_ema = 1e3;
-    let before = w.gov.roads_built;
-    sim_core::government::budget(w);
-    assert!(w.gov.roads_built > before, "no road built");
-    assert!(w.gov.roads_expropriated > 0, "no building expropriated");
-    // The owners were paid at least the buildings' replacement value.
-    assert!(w.gov.spend_compensation > 400_000.0 * w.gov.roads_expropriated as f64);
+    let best = roads::candidates(w, 1e12);
+    let p = best.iter().find(|p| p.ratio() >= roads::MIN_RETURN).expect("no project pays");
+    let in_way: Vec<usize> = p.path.iter().copied().filter(|&i| w.p.land_use[i].is_building()).collect();
+    assert!(!in_way.is_empty(), "a new road must cross the wall");
+    let premium = 1.0 + w.cfg.policy.spending.purchase_premium as f64;
+    let owed: f64 = in_way
+        .iter()
+        .map(|&i| premium * sim_core::econ::valuation(w, i, &w.investor_for(w.p.owner[i])).max(w.parcel_value(i)))
+        .sum();
+    let (expropriated, compensation) = (w.gov.roads_expropriated, w.gov.spend_compensation);
+    let path = p.path.clone();
+    roads::build(w, &path);
+    assert_eq!(w.gov.roads_expropriated - expropriated, in_way.len() as u32);
+    assert!(w.gov.spend_compensation - compensation >= owed * 0.999);
+    // Owners were paid at least the replacement value of their houses.
+    assert!(owed > 400_000.0 * in_way.len() as f64);
+}
+
+/// The founding streets and every road built since form one network.
+#[test]
+fn road_network_stays_connected() {
+    let sim = grown_city(120);
+    let w = &sim.world;
+    assert!(w.gov.road_projects > 0);
+    assert_eq!(roads::disconnected(w), 0);
 }
 
 /// The assessor values land net of the land tax on that same assessment

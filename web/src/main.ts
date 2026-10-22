@@ -2,7 +2,7 @@
 
 import './styles.css';
 import { SimClient, type ReadyInfo } from './sim/client';
-import { CELL_STRIDE, C_USE, LandUse, type Metrics, type Policy } from './sim/protocol';
+import { type Metrics, type Policy } from './sim/protocol';
 import { OVERLAY_DEFS, rampCss } from './render/palette';
 import { WorldView } from './render/world';
 import { Charts } from './ui/charts';
@@ -48,7 +48,7 @@ main.onError = toast;
 main.onReady = (info) => {
   ready = info;
   focused = false;
-  view.setWorld(info.width, info.height, info.heights);
+  view.setWorld(info.width, info.height, info.heights, info.mesh);
   policyPanel.setPresets(info.presets);
   policyPanel.setPolicy(info.config.policy);
   fillBaselineSelect(info);
@@ -58,7 +58,7 @@ main.onReady = (info) => {
 main.onFrame = ({ frame, events }) => {
   view.update(frame, events);
   if (!focused) {
-    focusOnCity(frame.cells);
+    view.focusOnCity(frame.cells);
     focused = true;
   }
   if (selected !== null) refreshInspector();
@@ -72,22 +72,6 @@ main.onMetrics = (ms: Metrics[]) => {
 main.onPerf = (ms) => {
   $('perf').textContent = `${ms.toFixed(1)} ms/month`;
 };
-
-function focusOnCity(cells: Uint8Array) {
-  if (!ready) return;
-  let sx = 0;
-  let sy = 0;
-  let n = 0;
-  for (let i = 0; i < ready.width * ready.height; i++) {
-    const u = cells[i * CELL_STRIDE + C_USE];
-    if (u === LandUse.Residential || u === LandUse.Commercial || u === LandUse.Industrial) {
-      sx += i % ready.width;
-      sy += Math.floor(i / ready.width);
-      n++;
-    }
-  }
-  if (n) view.focus(Math.round(sy / n) * ready.width + Math.round(sx / n));
-}
 
 // ---------------------------------------------------------------- baseline
 

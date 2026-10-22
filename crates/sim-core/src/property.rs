@@ -23,13 +23,11 @@ pub fn idle_share(w: &World, i: usize) -> f64 {
     }
 }
 
-/// In the property tax base. Land reserved for a street cannot be built on,
-/// so it is exempt until the government buys it.
+/// In the property tax base.
 pub fn taxable(w: &World, i: usize) -> bool {
     w.p.in_city[i]
         && !matches!(w.p.owner[i], Owner::Gov)
         && !matches!(w.p.land_use[i], LandUse::Water | LandUse::Road | LandUse::Park | LandUse::Civic)
-        && !crate::government::reserved_for_street(w, i)
 }
 
 pub fn owner_costs(w: &mut World) {

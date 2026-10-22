@@ -118,7 +118,7 @@ export const TAX_META: TaxMeta[] = [
 
 const SPENDING: { key: keyof SpendingPolicy; label: string; help: string }[] = [
   { key: 'services', label: 'Public services', help: 'Schools and clinics: public jobs, service quality raises nearby land values.' },
-  { key: 'infrastructure', label: 'Roads', help: 'Extends the street grid (opening land for development) and maintains it.' },
+  { key: 'infrastructure', label: 'Roads', help: 'Builds new streets when serviced land runs short and the land value a street unlocks exceeds its cost (buying the land on its route), and maintains them.' },
   { key: 'parks', label: 'Parks', help: 'Buys land at market price and turns it into parks (amenity).' },
   { key: 'dividend', label: 'Citizen dividend', help: 'Equal payment to every household (UBI).' },
   { key: 'welfare', label: 'Welfare', help: 'Means-tested support with 50% withdrawal, extra for the unhoused.' },
@@ -239,6 +239,18 @@ export class PolicyPanel {
         this.policy.height_limit = v;
         this.changed();
       }),
+    );
+    root.append(
+      slider(
+        'Land purchase premium',
+        sp.purchase_premium ?? 0.25,
+        { min: 0, max: 1, step: 0.05, fmt: 'pct' },
+        (v) => {
+          sp.purchase_premium = v;
+          this.changed();
+        },
+        'What the government pays above market value when it buys land for roads, parks and civic buildings. No land is reserved in advance: a costlier buy-out makes the road planner route around buildings and build less.',
+      ),
     );
   }
 

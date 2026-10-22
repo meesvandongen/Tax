@@ -15,8 +15,9 @@ benchmarks are in [research/technology.md](research/technology.md). In short:
 * **Why not threads in the browser.** wasm threads in Rust still need nightly toolchains and COOP/COEP headers.
   Parallelism goes where it pays off instead: running many independent simulations at once
   (`taxsim compare` uses every core).
-* **Why WebGL (Three.js `WebGLRenderer`) today.** The scene is a few instanced meshes (≤ ~100k instances),
-  well within WebGL2 on every browser. The renderer is isolated in `web/src/render/`. Switching to
+* **Why WebGL (Three.js `WebGLRenderer`) today.** The scene is the parcel mesh, a few merged meshes rebuilt from
+  each snapshot (roads, buildings) and a few instanced meshes (≤ ~100k instances), well within WebGL2 on every
+  browser. The renderer is isolated in `web/src/render/`. Switching to
   `WebGPURenderer` later is a local change.
 * **No wasm-bindgen.** The wasm boundary is a dozen `extern "C"` functions plus JSON for low-frequency data
   (config, policy, metrics, inspector), with raw typed-array views for per-frame buffers. That means no generated
@@ -43,10 +44,11 @@ benchmarks are in [research/technology.md](research/technology.md). In short:
 | module | role |
 |---|---|
 | `world.rs` | All state: terrain, parcels (struct-of-arrays), households, firms, government, flows, history |
-| `types.rs` | `Parcels` (SoA, one entry per grid cell), `Household`, `Firm`, `LandUse`, `Owner` |
+| `types.rs` | `Parcels` (SoA, one entry per mesh parcel), `Household`, `Firm`, `LandUse`, `Owner` |
+| `mesh.rs` | The irregular parcel grid (Townscaper-style quad mesh): generation, edge adjacency, precomputed neighbourhoods, splat/blur/sample onto the field raster, distances |
 | `sim.rs` | **The monthly pipeline**: an ordered list of `(name, fn(&mut World))` systems; optional profiling |
 | `fields.rs` | Spatial fields recomputed every tick: job access, Huff retail demand, pollution, amenity, services, rent surfaces |
-| `grid.rs` | O(n) separable exponential-kernel blur (`a^(\|dx\|+\|dy\|)`), which turns spatial interaction into convolutions |
+| `grid.rs` | The field raster: O(n) separable exponential-kernel blur (`a^(\|dx\|+\|dy\|)`), which turns spatial interaction into convolutions |
 | `econ.rs` | Valuation and development feasibility used by *every* agent (perpetuity with taxes, best (use, height) option, firm bid-rents) |
 | `labour.rs` | Firm hiring/wage rules, job search with after-tax participation choice |
 | `production.rs` | Output, wages, rents, firm taxes, dividends; Huff-model allocation of local spending to shops |
@@ -55,7 +57,8 @@ benchmarks are in [research/technology.md](research/technology.md). In short:
 | `land.rs` | Mass appraisal by comparables, forced and voluntary sales via bids, Harberger declarations and buy-outs, compulsory purchase |
 | `development.rs` | Build / wait / keep decisions (real-option rule), construction pipeline |
 | `firms.rs` | Firm entry and exit |
-| `government.rs` | Transfers, budget allocation, roads, parks, civic buildings |
+| `government.rs` | Transfers, budget allocation, parks, civic buildings |
+| `roads.rs` | Road planning: when (serviced-land shortfall, benefit/cost ≥ 1, budget), where (least-cost routes over the mesh with turn penalties), land purchase at a premium |
 | `migration.rs` | Open-city immigration and emigration, ageing, death and inheritance |
 | `environment.rs` | Vegetation regrowth and damage, weeds on idle lots |
 | `households.rs` | Month-end settlement: income, wealth and head taxes, consumption with sales tax, net worth |
@@ -73,7 +76,7 @@ benchmarks are in [research/technology.md](research/technology.md). In short:
    checks "which tax is active" to change behaviour.
 2. **Prices come from bids**, not formulas. Land is valued by each bidder with its own discount rate and tax
    position. Assessments are made from comparables (observed residual land rents and sales).
-3. **Deterministic.** A single seeded xoshiro256++ stream; no hash-map iteration in the tick; same seed and policy
+3. **Deterministic.** A single seeded xoshiro256++ stream; hash maps only for lookups, never iterated; same seed and policy
    give identical histories (tested). Results can differ in the last float bits between native and wasm because
    `libm` differs, so compare runs within one platform.
 4. **Plain data, explicit order.** Systems are free functions over `&mut World`. The pipeline in `sim.rs` is the
@@ -124,8 +127,9 @@ few ticks, or moving them to the GPU for display-only use.
 | `src/sim/worker.ts` | Loads `sim.wasm`, runs the loop, posts metrics and frames |
 | `src/sim/client.ts` | Main-thread handle (main city or baseline "shadow" city) |
 | `src/sim/protocol.ts` | Shared constants and message types (mirrors the Rust layouts) |
-| `src/render/world.ts` | Terrain mesh + per-cell ground texture, instanced buildings, roofs, trees, weeds, fences, tents, cranes, bridges, smog layer, commuter traffic, migration movers, event pulses, picking |
+| `src/render/world.ts` | The parcel mesh as terrain (one coloured quad per parcel, faint parcel outlines), road tiles chosen by which neighbours a road parcel connects to, buildings extruded from their parcels (built out to shared walls) with their roof modules, trees, weeds, fences, tents, cranes, bridge piers, smog layer, commuter traffic, migration movers, event pulses, picking |
+| `src/render/wfc.ts` | Wave function collapse choosing each building's roof module (the edges its ridge runs to) and facade colour: ridges continue across walls shared by houses of equal height, attached neighbours differ in colour; solved parcels keep their modules while their surroundings are unchanged |
 | `src/render/palette.ts` | Land-use colours, colour ramps, overlay definitions |
-| `src/ui/policy.ts` | Preset loader, tax cards with sliders, income brackets, spending mix, zoning and height rules |
+| `src/ui/policy.ts` | Preset loader, tax cards with sliders, income brackets, spending mix, zoning and height rules, land purchase premium |
 | `src/ui/charts.ts` | uPlot time series (dashed lines = baseline run) |
 | `src/ui/kpis.ts`, `src/ui/inspector.ts` | KPI tiles with deltas vs. baseline; parcel inspector |

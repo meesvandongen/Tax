@@ -63,6 +63,7 @@ export interface SpendingPolicy {
   dividend: number;
   welfare: number;
   max_debt_to_revenue: number;
+  purchase_premium: number;
 }
 
 export interface Policy {
@@ -160,6 +161,22 @@ export type SimEvent =
   | { t: 'road'; cell: number }
   | { t: 'death'; cell: number };
 
+/** The irregular parcel mesh (sim-core/src/mesh.rs). Parcel i is quad i. */
+export interface MeshData {
+  /** Corner positions, (x, y) pairs in cells. */
+  verts: Float32Array;
+  /** Four corners per parcel, counter-clockwise in (x, y). */
+  quads: Uint32Array;
+  /** The parcel across each edge (edge k runs from corner k to k + 1), NONE at the border. */
+  adj: Uint32Array;
+  /** Terrain height (m) at each corner. */
+  vertHeights: Float32Array;
+  /** Parcel under each pixel of the width × height raster. */
+  pixelCells: Uint32Array;
+}
+
+export const NONE = 0xffffffff;
+
 export interface Frame {
   tick: number;
   cells: Uint8Array;
@@ -184,6 +201,7 @@ export type FromWorker =
       width: number;
       height: number;
       heights: Float32Array;
+      mesh: MeshData;
       overlays: string[];
       presets: Preset[];
       config: { seed: number; policy: Policy; [k: string]: unknown };

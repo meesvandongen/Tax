@@ -403,10 +403,9 @@ pub fn check(w: &World) -> Vec<String> {
     if miscounted > 0 {
         v.push(format!("{miscounted} firms' head count or skill total does not match their staff"));
     }
-    let on_streets =
-        (0..w.p.len()).filter(|&i| w.p.land_use[i].is_private_use() && crate::government::on_street_plan(w, i)).count();
-    if on_streets > 0 {
-        v.push(format!("{on_streets} buildings block planned streets"));
+    let stranded = crate::roads::disconnected(w);
+    if stranded > 0 {
+        v.push(format!("{stranded} road parcels are not connected to the network"));
     }
 
     let max_cash = w.hh.iter().filter(|h| h.alive).map(|h| h.cash).fold(0.0, f64::max);

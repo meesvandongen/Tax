@@ -24,7 +24,7 @@ export function renderInspector(root: HTMLElement, d: any) {
         ? 'absentee investor'
         : 'government';
   let html = `<div class="insp-head"><b>${use === 'Construction' ? `Construction → ${d.target_use}` : use}</b>
-    <span class="muted">(${d.x}, ${d.y})</span><button class="icon" data-close>×</button></div><table>`;
+    <span class="muted">(${Number(d.x).toFixed(0)}, ${Number(d.y).toFixed(0)})</span><button class="icon" data-close>×</button></div><table>`;
   if (d.floors) html += row('Floors', d.floors);
   if (d.units) html += row(use === 'Residential' ? 'Dwellings' : 'Job slots', `${d.occupied} / ${d.units} used`);
   if (use === 'Residential' || use === 'Commercial' || use === 'Industrial') html += row('Asking rent', money(d.asking_rent) + ' / unit');
@@ -35,7 +35,6 @@ export function renderInspector(root: HTMLElement, d: any) {
   if (d.declared) html += row('Self-assessed', money(d.declared), 'Harberger declaration');
   html += row('Taxes last month', money(d.tax_last_month));
   if (d.mortgage > 0) html += row('Mortgage', money(d.mortgage));
-  if (d.street_reserve) html += row('Street reserve', 'future road', 'On the mapped street plan: no building allowed; bought at market value when the road comes');
   if (d.months_held_idle > 0) html += row('Held idle', `${d.months_held_idle} months`, 'Owner judged waiting more profitable than building');
   if (d.owner.kind !== 'government' || d.last_price > 0)
     html += row('Market value', money(d.last_price), d.months_since_sale < 24 ? `sold ${d.months_since_sale} months ago` : 'assessment (no recent sale)');

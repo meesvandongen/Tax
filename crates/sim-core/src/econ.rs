@@ -90,6 +90,22 @@ pub fn construction_cost(w: &World, i: usize, u: LandUse, floors: u8) -> f64 {
     e.cost_per_floor as f64 * (floors as f64).powf(1.0 + e.height_premium as f64) * use_factor * slope
 }
 
+/// Years after which a building's upkeep has doubled: systems wear out and
+/// the layout dates, so old buildings cost more to keep up and are
+/// eventually worth replacing. Renovation halves the effective age.
+pub const OBSOLESCENCE_YEARS: f64 = 60.0;
+
+/// Upkeep multiplier for a building of this age.
+pub fn ageing(age_months: u32) -> f64 {
+    1.0 + age_months as f64 / 12.0 / OBSOLESCENCE_YEARS
+}
+
+/// Monthly cost of keeping the current building in shape.
+pub fn upkeep(w: &World, i: usize) -> f64 {
+    let p = &w.p;
+    w.econ.maintenance_rate as f64 * construction_cost(w, i, p.land_use[i], p.floors[i]) * ageing(p.age_months[i])
+}
+
 /// Depreciated replacement cost of the current building.
 pub fn building_value(w: &World, i: usize) -> f64 {
     let u = w.p.land_use[i];
@@ -353,8 +369,11 @@ pub fn building_in_condition_value(w: &World, i: usize, inv: &Investor, conditio
     } else {
         (p.occupied[i] as f64 / units as f64).max(expected_occupancy(w, i, u, 0) * 0.8)
     };
-    // Rent actually achievable falls with the building's condition.
-    let n = noi(w, i, u, units, occ, bldg) + (rent_quality(condition) - 1.0) * gross_rent(w, i, u, units, occ);
+    // Rent actually achievable falls with the building's condition, and an
+    // old building costs more to keep up.
+    let ageing_cost = upkeep(w, i) - w.econ.maintenance_rate as f64 * construction_cost(w, i, u, p.floors[i]);
+    let n = noi(w, i, u, units, occ, bldg) + (rent_quality(condition) - 1.0) * gross_rent(w, i, u, units, occ)
+        - ageing_cost;
     let market = capitalize(w, inv, i, n, bldg, 1.0 - occ);
     // Let business premises are worth at least the lease the sitting tenant
     // pays, as an appraiser would value them, not only what a newcomer might
@@ -443,7 +462,7 @@ pub fn owner_occupier_value(w: &World, i: usize, inv: &Investor) -> f64 {
     let p = &w.p;
     let units = p.units[i].max(1) as f64;
     let bldg = building_value(w, i);
-    let upkeep = w.econ.maintenance_rate as f64 * construction_cost(w, i, p.land_use[i], p.floors[i]);
+    let upkeep = upkeep(w, i);
     let rent = market_rent(w, i, p.land_use[i], p.units[i]) as f64 * rent_quality(p.condition[i]);
     let n = units * rent - upkeep;
     let own = Investor { t_inc: 0.0, r: inv.r + OWNER_OCCUPIER_PREMIUM, ..*inv };

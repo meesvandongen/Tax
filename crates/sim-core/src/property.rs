@@ -3,7 +3,7 @@
 //! if the extra rent is worth more than the upkeep *after* the extra
 //! building tax that a better-kept building attracts.
 
-use crate::econ::{self, construction_cost};
+use crate::econ;
 use crate::types::*;
 use crate::world::{Event, World};
 
@@ -88,8 +88,7 @@ pub fn owner_costs(w: &mut World) {
         let u = w.p.land_use[i];
         if u.is_private_use() {
             w.p.age_months[i] += 1;
-            let cost = construction_cost(w, i, u, w.p.floors[i]);
-            let upkeep = e.maintenance_rate as f64 * cost;
+            let upkeep = econ::upkeep(w, i);
             let inv = w.investor_for(owner);
             // Value gained by keeping the building up this month rather than
             // letting it slip: the owner's own after-tax valuation at both

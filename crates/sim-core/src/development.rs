@@ -276,6 +276,7 @@ pub fn run(w: &mut World) {
                     w.p.floors[i] += add;
                     w.p.units[i] = econ::units_for(w, u, w.p.floors[i]);
                     w.p.condition[i] = 1.0;
+                    w.p.age_months[i] /= 2;
                     w.p.months_vacant[i] = 0;
                     w.flows.construction_spend += cost;
                     w.flows.extensions += 1;
@@ -309,6 +310,7 @@ pub fn run(w: &mut World) {
                         crate::property::charge_flat_owners(w, i, cost / w.p.units[i] as f64);
                     }
                     w.p.condition[i] = 1.0;
+                    w.p.age_months[i] /= 2;
                     w.p.months_vacant[i] = 0;
                     w.flows.construction_spend += cost;
                     w.flows.renovations += 1;

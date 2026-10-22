@@ -196,9 +196,18 @@ fn public_works_buy_land_at_a_premium() {
     let w = &mut sim.world;
     let premium = 1.0 + w.cfg.policy.spending.purchase_premium as f64;
     assert!(premium > 1.0);
-    let i = (0..w.p.len())
+    // (A resident-owned home; if the grown city has none, hand one over.)
+    let i = match (0..w.p.len())
         .find(|&i| matches!(w.p.owner[i], Owner::Hh(_)) && w.p.land_use[i] == LandUse::Residential)
-        .expect("a resident-owned home");
+    {
+        Some(i) => i,
+        None => {
+            let i = (0..w.p.len()).find(|&i| w.p.land_use[i] == LandUse::Residential).expect("a home");
+            let id = (0..w.hh.len()).find(|&id| w.hh[id].alive).expect("a household");
+            w.p.owner[i] = Owner::Hh(id as u32);
+            i
+        }
+    };
     let Owner::Hh(id) = w.p.owner[i] else { unreachable!() };
     let value = sim_core::econ::valuation(w, i, &w.household_investor(id)).max(w.parcel_value(i));
     let (cash, debt) = (w.hh[id as usize].cash, w.p.mortgage[i] as f64);
@@ -268,6 +277,11 @@ fn roads_through_buildings_pay_full_compensation() {
     let p = best.first().expect("no road project");
     let in_way: Vec<usize> = p.path.iter().copied().filter(|&i| w.p.land_use[i].is_building()).collect();
     assert!(!in_way.is_empty(), "a new road must cross the wall");
+    for &i in &in_way {
+        if w.p.owner[i] == Owner::Gov {
+            w.p.owner[i] = Owner::Absentee;
+        }
+    }
     let premium = 1.0 + w.cfg.policy.spending.purchase_premium as f64;
     let owed: f64 = in_way
         .iter()

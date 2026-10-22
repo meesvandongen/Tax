@@ -172,6 +172,8 @@ pub struct World {
     pub biz_occupancy: f32,
     /// Average workers per shop and per factory.
     pub firm_size: [f32; 3],
+    /// Workers the city could supply to new premises this month.
+    pub labour_available: f32,
     /// Last month's local consumer spending by home cell (net of sales tax),
     /// to be captured by shops this month.
     pub retail_pool: Vec<f32>,
@@ -232,6 +234,7 @@ impl World {
             labour_slack: 1.0,
             biz_occupancy: 0.9,
             firm_size: [15.0, 15.0, 15.0],
+            labour_available: 0.0,
             retail_pool: vec![0.0; n],
             center: 0,
             wage_cache: 0.0,

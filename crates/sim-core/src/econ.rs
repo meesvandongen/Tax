@@ -230,6 +230,10 @@ pub fn expected_occupancy(w: &World, i: usize, u: LandUse, new_units: u16) -> f6
         let office = u == LandUse::Commercial && offices_lead(w, i, new_units.max(1));
         let typical = if u == LandUse::Commercial { w.firm_size[0] } else { w.firm_size[1] };
         let fill = if new_units > 0 && !office { (typical / new_units as f32).min(1.0) } else { 1.0 };
+        // New premises cannot be staffed with more workers than the city
+        // can supply (job seekers, would-be newcomers, a share of residents).
+        let staffable = if new_units > 0 { (w.labour_available / new_units as f32).min(1.0) } else { 1.0 };
+        let fill = fill.min(staffable);
         labour.min(occ).min(w.biz_occupancy + 0.05).min(fill)
     };
     // New space competes with what is already being built nearby.
@@ -688,6 +692,7 @@ impl World {
             }
         }
         let available = unemployed + 0.5 * self.latent_demand as f32 + 0.02 * self.n_alive_hh as f32;
+        self.labour_available = available;
         self.labour_slack = (available / (open_slots + 10.0)).clamp(0.05, 2.0);
         let (mut units, mut occupied) = (0f32, 0f32);
         for i in 0..self.p.len() {

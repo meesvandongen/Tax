@@ -120,23 +120,37 @@ For each serviced parcel under review, the owner finds the best (use, floors) op
 commercial or industrial; floors go up to 40, or 3 for industry, subject to the height limit and zoning:
 
 * **cost:** `cost_per_floor × floors^(1+height_premium) × use factor × slope factor`;
-* **expected occupancy:** local occupancy minus absorption of the new units *and* the units already under
-  construction nearby, so developers see competing cranes;
+* **expected occupancy:** local occupancy once let, minus the effect of competing projects under construction
+  nearby (developers see the cranes);
+* **lease-up:** a new building competes in the whole city's market, not only its block. Its new space fills at a
+  pace that grows with the neighbourhood and the city (4 + 3% of local units + 0.05% of households per month), and
+  the rent lost meanwhile is a one-off cost. An earlier version treated each new dwelling as permanently lowering
+  occupancy against the stock within about 120 m, so every tall building looked a third empty forever and
+  mature cities stopped building;
 * **business space:** priced at the firm's **bid-rent** for premises of that size. That is revenue per worker at
   that scale, minus labour cost and a margin. Shops share local spending (Huff); factories have decreasing
   average product. Factories are priced *through the cycle*: at the export price expected over a ten-year
   occupancy, not today's boom or slump price;
 * **clearing the site:** demolition, plus compensation for sitting tenants: a relocation allowance of
   `relocation_months` (6) of rent per household, and twice that per leased job slot as a lease buy-out for a firm.
-  Owner-occupiers are bought out of their flats at market value plus 20% (a collective sale). The owner pays all
-  of it when construction starts, so a building of owned flats is much harder to redevelop than a rented one.
+  Owner-occupiers must be bought out of their flats (a collective sale). The developer offers the lowest price at
+  which the policy's share of the building's dwellings accepts (`collective_sale_threshold`, 80% by default; the
+  parcel owner's unsold dwellings count as accepting), and at least market value plus 20%. An owner accepts once
+  the offer beats what living there is worth to them plus the cost of moving; holdouts are paid the same price.
+  The project goes ahead only if it still pays at that price, so a building of owned flats is harder to
+  redevelop than a rented one.
 * **owned flats:** the parcel owner values only its own share of the building (the dwellings not sold as flats).
   Flat owners pay their share of the building's property taxes, upkeep and renovations; the parcel owner still
   decides on maintenance.
 
-An existing building is valued as it stands. Let business premises are worth at least the lease the sitting
-tenant pays, as an appraiser would value them, not only what a newcomer would bid in today's labour market.
-Without that, a fully let factory looked worthless whenever labour was tight and was torn down.
+An existing building is valued as it stands. Its rent falls steeply as it nears ruin (the square root of its
+condition: a building at a quarter of new condition lets for half the rent), and tenants' disrepair cost is the
+same share of the local rent. Before, a ruin kept 60% of its rent, neglect was rational, and about 30% of
+buildings were derelict after 150 years. Upkeep rises with the building's age (it doubles every 60 years), so
+old buildings are eventually worth replacing. Let business premises are worth at least the lease the sitting
+tenant pays (scaled by condition), as an appraiser would value them, not only what a newcomer would bid in
+today's labour market. Without that, a fully let factory looked worthless whenever labour was tight and was
+torn down.
 
 * **expected occupancy for business space:** the lower of what the labour market can staff, local business
   occupancy and city-wide business occupancy, minus absorption, so empty premises deter new ones.
@@ -147,7 +161,11 @@ an idle lot lowers that interim income. Household owners need a 30% down payment
 to outside capital when its bid beats keeping the parcel.
 
 A run-down building can instead be **renovated** to new condition for half its construction cost times the
-missing condition, when that adds more value than rebuilding. **Maintenance** is decided each month the same way:
+missing condition, which also halves its effective age, when that adds more value than rebuilding. A sound
+building of up to 8 floors can instead **add 1 or 2 floors** (at a 25% cost premium over building them new,
+renovating the rest at the same time): no demolition, and the residents stay. Renovations and extensions are
+financed like construction (a 30% deposit); an owner who cannot finance one sells to outside capital, whose
+valuation includes the option. **Maintenance** is decided each month the same way:
 the owner pays the upkeep if their own after-tax valuation of the building in better condition exceeds it. This
 includes the point (condition 0.12) below which nobody new will rent a dwelling.
 
@@ -208,7 +226,8 @@ includes the point (condition 0.12) below which nobody new will rent a dwelling.
   flat it rents, once a year at lease renewal:
   * the parcel owner sells at its own valuation of a dwelling (its building value / units) plus 3%;
   * the household values owning at the rent it saves, never vacant and untaxed (imputed rent is not income),
-    minus its share of upkeep and property taxes, at its own discount rate and wealth-tax rate;
+    minus its share of upkeep and property taxes, at its own discount rate plus 1% (its home is one
+    undiversified, illiquid asset) and its wealth-tax rate;
   * it buys if that beats the price plus transfer tax, it has the 30% deposit, transfer tax and three months'
     subsistence in cash, and the mortgage payment is at most 35% of its budget.
 
@@ -217,7 +236,8 @@ includes the point (condition 0.12) below which nobody new will rent a dwelling.
   net worth (its share of the assessed parcel value, less the mortgage) and so in wealth and estate taxes, and
   heirs inherit it.
 * **Consumption.** A buffer-stock rule out of disposable income (after the rent actually paid; owner-occupiers
-  pay none) and cash. Part is spent at local shops; the rest is imported.
+  pay none) and net worth (property and businesses too, not only cash, so a rentier family spends out of its
+  fortune), twice as fast after 65. Part is spent at local shops; the rest is imported.
 * **Migration** (open city):
   * Prospective movers arrive at 0.6% of the population a month, plus a quarter of the advertised vacancies.
   * They come if the expected after-tax utility for their skill (net of effort, typical commute, rent, dividend)
@@ -228,8 +248,12 @@ includes the point (condition 0.12) below which nobody new will rent a dwelling.
     with them is **capital flight**.
   * **Congestion:** commuting costs scale with `1 + (households / 20 000)^0.6`, so a larger city is a slower one.
   * The unhoused give up after a few months.
-* **Death and inheritance.** The heir continues the household with the estate, net of estate tax, and a skill
-  that regresses to the mean.
+* **Death and inheritance.** The estate, net of estate tax, is split among about two children (1 to 4). One
+  continues the household (home, property and businesses) with a skill that regresses to the mean, and buys the
+  others out of everything but the businesses, selling property if the cash does not cover it. Half the other
+  children grew up here and consider staying: they set up a household if the city looks better to them than
+  moving away, as for a newcomer; otherwise their share leaves the city. Before, one heir took everything, and
+  in regimes without income, wealth or estate taxes the largest fortunes kept compounding for centuries.
 
 ### Firms
 

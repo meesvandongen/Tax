@@ -192,8 +192,9 @@ fn local_occ(w: &World, i: usize, u: LandUse) -> (f32, f32, f32) {
     }
 }
 
-/// Expected occupancy if `new_units` are added here: developers anticipate
-/// that flooding a neighbourhood with space lowers occupancy.
+/// Expected occupancy, once let, of a building with `new_units` added here.
+/// New space competes with what is already being built nearby; how long the
+/// new units themselves take to let is [`lease_up_loss`].
 pub fn expected_occupancy(w: &World, i: usize, u: LandUse, new_units: u16) -> f64 {
     let (occ, local_units, pipeline) = local_occ(w, i, u);
     // Business space is let whenever the bid-rent is positive (already
@@ -216,9 +217,25 @@ pub fn expected_occupancy(w: &World, i: usize, u: LandUse, new_units: u16) -> f6
         labour.min(occ).min(w.biz_occupancy + 0.05).min(fill)
     };
     // New space competes with what is already being built nearby.
-    let absorption = 0.6 * (new_units as f32 + pipeline) / (local_units + 25.0);
+    let absorption = 0.6 * pipeline / (local_units + 25.0);
     let demand_boost = if u == LandUse::Residential { w.housing_pressure() } else { 0.0 };
     ((occ + demand_boost) - absorption).clamp(0.02, 0.97) as f64
+}
+
+/// Rent lost while `new_units` of new space here are let. A new building
+/// competes in the whole city's market, not only its block: space fills at a
+/// pace that grows with the neighbourhood and the city (movers and
+/// newcomers), so a tall building takes months, not forever, to let.
+/// (Treating the first tenants' scarcity as permanent vacancy made every
+/// tall building look a third empty forever.)
+pub fn lease_up_loss(w: &World, i: usize, u: LandUse, new_units: u16, occ: f64) -> f64 {
+    if new_units == 0 {
+        return 0.0;
+    }
+    let (_, local_units, _) = local_occ(w, i, u);
+    let per_month = 4.0 + 0.03 * local_units as f64 + 0.0005 * w.n_alive_hh as f64;
+    let months = new_units as f64 / per_month;
+    0.5 * months * new_units as f64 * occ * market_rent(w, i, u, new_units) as f64
 }
 
 /// Whether zoning / height rules permit this use here.
@@ -416,6 +433,10 @@ pub fn flat_buyout(w: &World, i: usize) -> f64 {
     (1.0 + FLAT_BUYOUT_PREMIUM) * flat_value(w, i)
 }
 
+/// Extra return a household wants for tying its savings up in its own
+/// home: one undiversified, illiquid asset in a place it may have to leave.
+pub const OWNER_OCCUPIER_PREMIUM: f64 = 0.01;
+
 /// What the flat at `i` is worth to `inv` living in it: the rent it saves
 /// (untaxed and never vacant), less its share of upkeep and property taxes.
 pub fn owner_occupier_value(w: &World, i: usize, inv: &Investor) -> f64 {
@@ -425,7 +446,7 @@ pub fn owner_occupier_value(w: &World, i: usize, inv: &Investor) -> f64 {
     let upkeep = w.econ.maintenance_rate as f64 * construction_cost(w, i, p.land_use[i], p.floors[i]);
     let rent = market_rent(w, i, p.land_use[i], p.units[i]) as f64 * rent_quality(p.condition[i]);
     let n = units * rent - upkeep;
-    let own = Investor { t_inc: 0.0, ..*inv };
+    let own = Investor { t_inc: 0.0, r: inv.r + OWNER_OCCUPIER_PREMIUM, ..*inv };
     capitalize(w, &own, i, n, bldg, crate::property::idle_share(w, i)) / units
 }
 
@@ -456,9 +477,10 @@ pub fn best_extension(w: &World, i: usize, inv: &Investor) -> Option<(u8, f64, f
         let bcost = construction_cost(w, i, u, to);
         let cost = EXTENSION_PREMIUM * (bcost - construction_cost(w, i, u, floors)) + renovation_cost(w, i);
         let units = units_for(w, u, to);
-        let occ = expected_occupancy(w, i, u, units.saturating_sub(p.units[i]));
+        let added = units.saturating_sub(p.units[i]);
+        let occ = expected_occupancy(w, i, u, added);
         let n = noi(w, i, u, units, occ, bcost);
-        let value = capitalize(w, inv, i, n, bcost, 1.0 - occ);
+        let value = capitalize(w, inv, i, n, bcost, 1.0 - occ) - lease_up_loss(w, i, u, added, occ);
         if value - now - cost > best.map_or(0.0, |b| b.2 - now - b.1) {
             best = Some((add, cost, value));
         }
@@ -486,7 +508,7 @@ pub fn best_development(w: &World, i: usize, inv: &Investor) -> Option<DevOption
             if n <= 0.0 {
                 continue;
             }
-            let value = capitalize(w, inv, i, n, cost, 1.0 - occ);
+            let value = capitalize(w, inv, i, n, cost, 1.0 - occ) - lease_up_loss(w, i, u, units, occ);
             let residual = value - cost - demolition;
             if best.map_or(true, |b| residual > b.residual) {
                 best = Some(DevOption { land_use: u, floors, units, cost, value, residual, flat_price: 0.0 });
@@ -532,7 +554,8 @@ pub fn serviced_site_value(w: &World, i: usize, inv: &Investor, land: f64) -> f6
             if n <= 0.0 {
                 continue;
             }
-            best = best.max(capitalize_at_land(w, inv, i, n, cost, 1.0 - occ, land) - cost);
+            let value = capitalize_at_land(w, inv, i, n, cost, 1.0 - occ, land) - lease_up_loss(w, i, u, units, occ);
+            best = best.max(value - cost);
         }
     }
     best

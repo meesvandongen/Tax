@@ -5,7 +5,7 @@ An interactive, agent-based 3D city that grows out of individual decisions. Use 
 and split-rate tax, sales/VAT, corporate and payroll tax, transfer tax, Harberger (COST) tax, pollution tax,
 vacancy, estate and head taxes, and how the revenue is spent (services, roads, parks, citizen's dividend, welfare).
 
-![The city after 50 years, compared against a Georgist baseline](docs/img/city.jpg)
+![The city after 150 years on its irregular parcel grid, compared against a Georgist baseline](docs/img/city.jpg)
 
 The simulator does **not** encode what the literature predicts. Households, firms, landlords, developers and a
 government follow simple rules. Every tax reaches them only through their own after-tax calculations: whether to

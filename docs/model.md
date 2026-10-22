@@ -341,20 +341,22 @@ real staff by year 200). Export income per worker grew fourfold, wages fell and 
 ## What the model currently says, and how much to trust it
 
 These are 6 seeds × 40 years, from `taxsim compare` (mean ± standard error; see the README). Differences
-smaller than a couple of standard errors are noise. All presets also pass every audit check over 300 years
-(seed 1), and the Georgist preset for 500 years; cities settle at roughly 26 000–40 000 households.
+smaller than a couple of standard errors are noise. Over 200 years (seed 1) the status quo, Georgist and
+Harberger presets pass every audit check, and cities settle at roughly 26 000–36 000 households. The Nordic
+preset passes in 6 of 8 seeds over 100 years; in the other two, unemployment briefly exceeds the 25% bound
+during an export slump (a town whose jobs are almost all in export industry, with a single shop or two).
 
 * **Georgist** (6% land value tax, dividend):
-  * a larger city than the status quo (≈ 9 600 vs ≈ 8 000 households, about two standard errors), higher
-    output, slightly lower rents and taller buildings;
-  * more land owned by residents (absentee share ≈ 72% vs ≈ 100%) and much higher average resident welfare;
+  * a larger city than the status quo (≈ 13 700 vs ≈ 11 700 households, about three standard errors), higher
+    output, lower rents and taller buildings;
+  * more land owned by residents (absentee share ≈ 73% vs ≈ 100%) and much higher average resident welfare;
   * but modest revenue: land rent is small where land is plentiful and buildings are priced near construction
     cost, so a 6% land tax raises about a third of the status quo's revenue;
   * and much higher wealth inequality (no income or wealth taxes).
 * **Wealth tax** (2% above 1M): lower wealth inequality than the status quo and more departures of wealthy
   households. City size is within noise.
-* **Nordic** (high income tax and VAT): the lowest inequality, the highest revenue and the most deterred workers.
-  In this run it is also one of the largest cities.
+* **Nordic** (high income tax and VAT): the lowest inequality, the highest revenue and many deterred workers
+  (only the flat tax deters more). In this run it is also one of the largest cities.
 * **Harberger at 4% of total value:** the smallest city, with almost no building above one floor: the
   self-assessed tax falls on buildings too, so waiting beats building. A mechanism-level warning about COST rates,
   not a calibrated forecast.

@@ -11,7 +11,7 @@ use crate::types::*;
 use crate::world::World;
 
 pub fn run(w: &mut World) {
-    let e = w.cfg.econ.clone();
+    let e = w.econ.clone();
     let n = w.dims.len();
     let nf = w.firms.len();
 
@@ -68,7 +68,10 @@ pub fn run(w: &mut World) {
                 (y, intensity as f32, abatement, units)
             }
             Sector::Retail => {
-                let r = f.workers as f64 * f.productivity as f64 * draw[i] as f64;
+                // Each worker can serve a limited volume of customers; demand
+                // beyond that goes to shops elsewhere (imports).
+                let per_unit = draw[i].min(e.retail_output_per_worker) as f64;
+                let r = f.workers as f64 * f.productivity as f64 * per_unit;
                 retail_revenue += r;
                 (r, 0.0, 0.0, 0.0)
             }
@@ -97,7 +100,11 @@ pub fn run(w: &mut World) {
         w.pay_owner(landlord, rent);
 
         let after_tax = profit - corp;
-        let dividend = if after_tax > 0.0 { after_tax * 0.7 } else { 0.0 };
+        // Firms keep 30% of profits and pay out cash beyond a six-month
+        // buffer of costs, so retained earnings do not pile up forever.
+        let buffer = 6.0 * (revenue - profit).max(0.0);
+        let excess = (f.cash + 0.3 * after_tax.max(0.0) - buffer).max(0.0) / 12.0;
+        let dividend = if after_tax > 0.0 { after_tax * 0.7 } else { 0.0 } + excess;
         {
             let fm = &mut w.firms[id];
             fm.revenue = revenue as f32;
@@ -124,31 +131,40 @@ pub fn run(w: &mut World) {
     w.f.retail_draw = draw;
 }
 
-/// Commercial landlords renegotiate with their tenant firm; empty
-/// commercial space is offered at falling rents.
+/// Commercial landlords renegotiate with their tenant firm: they raise the
+/// rent while the tenant earns a healthy margin (capturing the location's
+/// rent) and cut it when the tenant loses money. Empty premises are offered
+/// at falling rents, toward what space nearby lets for.
 pub fn adjust_commercial_rents(w: &mut World) {
-    let adj = w.cfg.econ.rent_adjust;
+    let adj = w.econ.rent_adjust;
     for i in 0..w.p.len() {
         let u = w.p.land_use[i];
         if u != LandUse::Commercial && u != LandUse::Industrial {
             continue;
         }
-        let market = crate::econ::market_rent(w, i, u, w.p.units[i]);
         let fid = w.p.firm[i];
         let mut r = w.p.asking_rent[i];
         if fid == NONE {
+            let market = crate::econ::market_rent(w, i, u, w.p.units[i]);
             r *= 1.0 - adj;
+            r += (market - r).min(0.0) * 0.02;
         } else {
             let f = &w.firms[fid as usize];
-            let margin = f.profit / f.revenue.max(1.0);
-            if margin > 0.12 {
-                r *= 1.0 + adj * 0.25;
-            } else if margin < 0.0 {
-                r *= 1.0 - adj * 0.5;
+            if f.age_months >= 6 {
+                let margin = f.profit / f.revenue.max(1.0);
+                if margin > 0.15 {
+                    r *= 1.0 + 0.5 * adj;
+                } else if margin < 0.03 {
+                    r *= 1.0 - adj;
+                }
             }
+            // A tenant moves out rather than pay far above what comparable
+            // premises cost a typical firm: the landlord can capture the
+            // location's rent, not the tenant's own productivity.
+            let observed = if u == LandUse::Commercial { w.f.obs_com[i] } else { w.f.obs_ind[i] };
+            let typical = crate::econ::firm_bid_rent(w, i, u, w.p.units[i]).max(0.5 * observed);
+            r = r.min(1.3 * typical);
         }
-        // Market reference: drift toward the bid-rent for these premises.
-        r += (market - r) * 0.02;
-        w.p.asking_rent[i] = r.max(1.0);
+        w.p.asking_rent[i] = r.max(w.index);
     }
 }

@@ -7,19 +7,21 @@ use crate::types::*;
 use crate::world::{Event, World};
 
 pub fn exit(w: &mut World) {
+    let mut closing = Vec::new();
     for id in 0..w.firms.len() {
         let f = &w.firms[id];
         if !f.alive || f.sector == Sector::Public {
             continue;
         }
         let monthly_cost = (f.revenue - f.profit).max(1000.0) as f64;
-        if f.months_loss >= 6 || f.cash < -2.0 * monthly_cost {
-            let cell = f.parcel;
-            w.close_firm(id as u32);
+        if f.months_loss >= 12 || f.cash < -2.0 * monthly_cost {
+            closing.push(id as u32);
             w.flows.firms_closed += 1;
+            let cell = f.parcel;
             w.push_event(Event::FirmClose { cell });
         }
     }
+    w.close_firms(&closing);
 }
 
 fn new_firm(w: &mut World, i: usize, sector: Sector, owner: Owner, capital: f64) -> u32 {
@@ -56,7 +58,7 @@ fn expected_profit_per_slot(w: &World, i: usize, sector: Sector) -> f32 {
     let wage = w.market_wage_rate() * (1.0 + w.taxes.payroll_rate() as f32);
     let rent = w.p.asking_rent[i];
     let gross = match sector {
-        Sector::Retail => w.f.retail_draw[i] * 0.92,
+        Sector::Retail => crate::labour::retail_sales_per_unit(w, i) * 0.92,
         Sector::Industry => {
             let probe = Firm {
                 alive: true,
@@ -78,8 +80,8 @@ fn expected_profit_per_slot(w: &World, i: usize, sector: Sector) -> f32 {
             };
             let a = industry_tfp(w, &probe, i);
             let units = w.p.units[i].max(1) as f32;
-            let em = w.taxes.estimate(|m| m.emission(w.cfg.econ.pollution_per_worker as f64)) as f32;
-            a * units.powf(w.cfg.econ.labour_elasticity) / units - em
+            let em = w.taxes.estimate(|m| m.emission(w.econ.pollution_per_worker as f64)) as f32;
+            a * units.powf(w.econ.labour_elasticity) / units - em
         }
         Sector::Public => 0.0,
     };
@@ -88,10 +90,14 @@ fn expected_profit_per_slot(w: &World, i: usize, sector: Sector) -> f32 {
 }
 
 pub fn entry(w: &mut World) {
-    let rate = w.cfg.econ.firm_entry_rate as f64;
+    let rate = w.econ.firm_entry_rate as f64;
     let required_margin = 0.04 * w.market_wage_rate();
     let founders: Vec<u32> =
-        w.hh.iter().enumerate().filter(|(_, h)| h.alive && h.cash > 150_000.0).map(|(id, _)| id as u32).collect();
+        w.hh.iter()
+            .enumerate()
+            .filter(|(_, h)| h.alive && h.cash > 150_000.0 * w.index as f64)
+            .map(|(id, _)| id as u32)
+            .collect();
     for i in 0..w.p.len() {
         let u = w.p.land_use[i];
         let sector = match u {

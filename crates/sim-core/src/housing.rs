@@ -6,6 +6,25 @@ use crate::fields::{commute_cost, residential_quality};
 use crate::types::*;
 use crate::world::World;
 
+/// Below this condition a dwelling is unfit to let: nobody new moves in.
+pub const LETTABLE_CONDITION: f32 = 0.12;
+
+/// Whether parcel `i` has dwellings that can be let to a newcomer.
+pub fn lettable(w: &World, i: usize) -> bool {
+    w.p.land_use[i] == LandUse::Residential && w.p.condition[i] > LETTABLE_CONDITION
+}
+
+/// Rent the household actually pays this month: nothing if it owns the
+/// building it lives in.
+pub fn rent_paid(w: &World, id: u32) -> f32 {
+    let h = &w.hh[id as usize];
+    if h.home == NONE || w.p.owner[h.home as usize] == Owner::Hh(id) {
+        0.0
+    } else {
+        h.rent
+    }
+}
+
 /// Tenants pay rent; those who cannot are evicted.
 pub fn pay_rents(w: &mut World) {
     for id in 0..w.hh.len() {
@@ -38,28 +57,44 @@ pub fn evict(w: &mut World, id: u32) {
     }
 }
 
-/// Landlords: raise asking rents when full, cut them when units stand empty.
-/// Existing leases move to market on renewal.
+/// Landlords adjust asking rents to the state of the market: rents rise
+/// when vacancy (in the building and around it) is below the natural rate,
+/// faster when people are queueing for housing, and fall when units stand
+/// empty. Existing leases move to market on renewal.
+pub const NATURAL_VACANCY: f32 = 0.05;
+
 pub fn adjust_rents(w: &mut World) {
-    let adj = w.cfg.econ.rent_adjust;
+    let adj = w.econ.housing_rent_adjust;
     let pressure = w.housing_pressure();
-    let drift = w.cfg.econ.outside_growth / 12.0;
+    let drift = w.econ.outside_growth / 12.0;
     for i in 0..w.p.len() {
         if w.p.land_use[i] != LandUse::Residential || w.p.units[i] == 0 {
             continue;
         }
         let units = w.p.units[i] as f32;
-        let vac = (units - w.p.occupied[i] as f32) / units;
+        let own_vac = (units - w.p.occupied[i] as f32) / units;
+        let local_vac = 1.0 - w.f.occ_res[i];
+        // (A single empty flat in a small building is normal turnover, so
+        // the building's own vacancy is blended with its neighbourhood's.)
+        let vac = 0.3 * own_vac + 0.7 * local_vac;
+        // Excess demand: tight market > 0, slack market < 0.
+        let tightness = ((NATURAL_VACANCY - vac) / NATURAL_VACANCY).clamp(-1.0, 1.0);
         let r = &mut w.p.asking_rent[i];
-        if vac <= 0.0 {
-            // Full buildings only push rents up when people are queueing.
-            *r *= 1.0 + drift + adj * 3.0 * pressure;
-            w.p.months_vacant[i] = 0;
-        } else if vac > 0.05 {
-            *r *= 1.0 - adj * (vac * 2.0).min(1.0);
-            w.p.months_vacant[i] = w.p.months_vacant[i].saturating_add(1);
+        if tightness >= 0.0 {
+            // A full building with people queueing for homes is a shortage
+            // landlords can see directly, so they raise rents fast.
+            let queue = if own_vac <= 0.0 { pressure } else { 0.0 };
+            *r *= 1.0 + drift + adj * tightness + w.econ.housing_queue_response * queue;
+        } else {
+            // Rents are sticky downward: landlords cut slowly.
+            *r *= 1.0 + 0.6 * adj * tightness;
         }
-        *r = r.max(40.0);
+        if own_vac > NATURAL_VACANCY {
+            w.p.months_vacant[i] = w.p.months_vacant[i].saturating_add(1);
+        } else {
+            w.p.months_vacant[i] = 0;
+        }
+        *r = r.max(40.0 * w.index);
     }
     // Lease renewals: roughly yearly.
     let tick = w.tick;
@@ -78,9 +113,9 @@ fn location_utility(w: &World, h: &Household, cell: usize, rent: f32) -> f32 {
     let commute = if h.job != NONE {
         commute_cost(w, cell, w.firms[h.job as usize].parcel as usize)
     } else {
-        w.cfg.econ.commute_cost_per_cell * w.f.commute_eff[cell]
+        w.econ.commute_cost_per_cell * w.f.commute_eff[cell]
     };
-    residential_quality(w, cell) - commute - rent - DISREPAIR_COST * (1.0 - w.p.condition[cell])
+    residential_quality(w, cell) - commute - rent - w.index * DISREPAIR_COST * (1.0 - w.p.condition[cell])
 }
 
 /// Monthly income a household can count on (for affordability).
@@ -91,10 +126,10 @@ pub fn budget(w: &World, h: &Household) -> f32 {
 }
 
 pub fn market(w: &mut World) {
-    let e = w.cfg.econ.clone();
+    let e = w.econ.clone();
     let mut vacant: Vec<u32> = Vec::new();
     for i in 0..w.p.len() {
-        if w.p.land_use[i] == LandUse::Residential && w.p.occupied[i] < w.p.units[i] && w.p.condition[i] > 0.12 {
+        if lettable(w, i) && w.p.occupied[i] < w.p.units[i] {
             vacant.push(i as u32);
         }
     }
@@ -103,8 +138,9 @@ pub fn market(w: &mut World) {
         if !h.alive {
             continue;
         }
-        let burden = if h.home != NONE { h.rent / budget(w, h).max(1.0) } else { 1.0 };
-        if h.home == NONE || burden > 0.55 || w.rng.chance(e.relocation_rate as f64) {
+        let burden = if h.home != NONE { rent_paid(w, id as u32) / budget(w, h).max(1.0) } else { 1.0 };
+        let slum = h.home != NONE && !lettable(w, h.home as usize);
+        if h.home == NONE || slum || burden > 0.55 || w.rng.chance(e.relocation_rate as f64) {
             searchers.push(id as u32);
         }
     }

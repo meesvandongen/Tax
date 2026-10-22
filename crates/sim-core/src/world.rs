@@ -1,6 +1,6 @@
 //! The complete simulation state and its initial generation.
 
-use crate::config::SimConfig;
+use crate::config::{EconParams, SimConfig};
 use crate::fields::Fields;
 use crate::grid::Dims;
 use crate::metrics::Metrics;
@@ -51,6 +51,8 @@ pub struct Government {
     pub dividend_per_hh: f64,
     /// Welfare budget available next month.
     pub welfare_budget: f64,
+    /// The welfare budget this month's payments were made from.
+    pub welfare_paid_budget: f64,
     pub service_budget: f64,
     pub infra_budget: f64,
     pub park_budget: f64,
@@ -77,9 +79,11 @@ pub struct Flows {
     pub construction_spend: f64,
     pub sales: u32,
     pub forced_sales: u32,
+    pub foreclosures: u32,
     pub harberger_buyouts: u32,
     pub buildings_started: u32,
     pub buildings_completed: u32,
+    pub renovations: u32,
     pub demolitions: u32,
     pub firms_opened: u32,
     pub firms_closed: u32,
@@ -103,6 +107,10 @@ pub struct Flows {
 
 pub struct World {
     pub cfg: SimConfig,
+    /// `cfg.econ` in money of the day (see [`EconParams::indexed`]).
+    pub econ: EconParams,
+    /// Level of outside productivity and prices, `(1 + outside_growth)^year`.
+    pub index: f32,
     pub dims: Dims,
     pub tick: u64,
     pub rng: Rng,
@@ -120,6 +128,10 @@ pub struct World {
     pub history: Vec<Metrics>,
     /// Industry export price multiplier (business cycle, AR(1)).
     pub cycle: f32,
+    /// Smoothed real export volume (exports / index) and the resulting
+    /// export price (downward-sloping outside demand).
+    pub export_volume: f64,
+    pub export_price: f32,
     /// City-wide land price index and its smoothed growth (per year).
     pub price_index: f64,
     pub price_growth: f64,
@@ -134,6 +146,10 @@ pub struct World {
     pub latent_demand: u32,
     /// Available labour (unemployed + latent immigrants) per open job slot.
     pub labour_slack: f32,
+    /// Share of business job slots (shops, factories) that are filled.
+    pub biz_occupancy: f32,
+    /// Average workers per shop and per factory.
+    pub firm_size: [f32; 2],
     /// Last month's local consumer spending by home cell (net of sales tax),
     /// to be captured by shops this month.
     pub retail_pool: Vec<f32>,
@@ -177,6 +193,8 @@ impl World {
             events: Vec::new(),
             history: Vec::new(),
             cycle: 1.0,
+            export_volume: 0.0,
+            export_price: 1.0,
             price_index: 1.0,
             price_growth: 0.0,
             rent_index: 1.0,
@@ -186,12 +204,16 @@ impl World {
             pressure: 0.0,
             latent_demand: 0,
             labour_slack: 1.0,
+            biz_occupancy: 0.9,
+            firm_size: [15.0, 15.0],
             retail_pool: vec![0.0; n],
             center: 0,
             wage_cache: 0.0,
+            econ: cfg.econ.clone(),
+            index: 1.0,
             cfg,
         };
-        w.wage_cache = w.cfg.econ.base_wage;
+        w.wage_cache = w.econ.base_wage;
         crate::genesis::found_settlement(&mut w);
         w
     }
@@ -209,8 +231,8 @@ impl World {
         }
     }
 
-    /// Remove a household that leaves or dies without heir. Its title to
-    /// parcels and firms passes to absentee (outside) ownership.
+    /// Remove a household that leaves. The caller must first dispose of its
+    /// parcels and firms (emigrants sell them, see `migration::emigration`).
     pub fn remove_household(&mut self, id: u32) {
         let h = &mut self.hh[id as usize];
         if !h.alive {
@@ -229,16 +251,6 @@ impl World {
             let f = &mut self.firms[job as usize];
             f.workers = f.workers.saturating_sub(1);
             f.skill_sum = (f.skill_sum - self.hh[id as usize].skill).max(0.0);
-        }
-        for i in 0..self.p.len() {
-            if self.p.owner[i] == Owner::Hh(id) {
-                self.p.owner[i] = Owner::Absentee;
-            }
-        }
-        for f in self.firms.iter_mut() {
-            if f.alive && f.owner == Owner::Hh(id) {
-                f.owner = Owner::Absentee;
-            }
         }
         self.n_alive_hh -= 1;
         self.free_hh.push(id);
@@ -260,39 +272,64 @@ impl World {
 
     /// Close a firm: lay off its workers and free its premises.
     pub fn close_firm(&mut self, id: u32) {
-        let parcel = {
+        self.close_firms(&[id]);
+    }
+
+    /// Close several firms with a single pass over the households.
+    pub fn close_firms(&mut self, ids: &[u32]) {
+        let mut closing = Vec::with_capacity(ids.len());
+        for &id in ids {
             let f = &mut self.firms[id as usize];
             if !f.alive {
-                return;
+                continue;
             }
             f.alive = false;
             f.workers = 0;
             f.skill_sum = 0.0;
-            f.parcel
-        };
+            let i = f.parcel as usize;
+            if self.p.firm[i] == id {
+                self.p.firm[i] = NONE;
+                self.p.occupied[i] = 0;
+            }
+            self.n_alive_firms -= 1;
+            self.free_firms.push(id);
+            closing.push(id);
+        }
+        if closing.is_empty() {
+            return;
+        }
+        let mut closed = vec![false; self.firms.len()];
+        for &id in &closing {
+            closed[id as usize] = true;
+        }
         for h in self.hh.iter_mut() {
-            if h.alive && h.job == id {
+            if h.alive && h.job != NONE && closed[h.job as usize] {
                 h.job = NONE;
                 h.wage = 0.0;
             }
         }
-        let i = parcel as usize;
-        if self.p.firm[i] == id {
-            self.p.firm[i] = NONE;
-            self.p.occupied[i] = 0;
-        }
-        self.n_alive_firms -= 1;
-        self.free_firms.push(id);
     }
 
     pub fn year(&self) -> f32 {
         self.tick as f32 / 12.0
     }
 
+    /// Advance the price/productivity index to the current tick.
+    pub fn update_index(&mut self) {
+        self.index = (1.0 + self.cfg.econ.outside_growth).powf(self.year());
+        self.econ = self.cfg.econ.indexed(self.index);
+        // Traffic: the more people commute, the slower (and dearer) every trip.
+        let e = &mut self.econ;
+        e.industry_price *= self.export_price;
+        let crowd = (self.n_alive_hh as f32 / e.congestion_scale.max(1.0)).powf(e.congestion_elasticity);
+        e.commute_cost_per_cell *= 1.0 + crowd;
+        self.taxes.set_index(self.index as f64);
+    }
+
     /// Outside option (monthly money-metric utility) for a given skill.
     pub fn outside_utility(&self, skill: f32) -> f32 {
-        let e = &self.cfg.econ;
-        e.outside_utility * skill.powf(0.85) * (1.0 + e.outside_growth).powf(self.year())
+        let e = &self.econ;
+        e.outside_utility * skill.powf(0.85)
     }
 
     pub fn owner_cash(&self, o: Owner) -> f64 {

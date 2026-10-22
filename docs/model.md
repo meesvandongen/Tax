@@ -14,9 +14,16 @@ contradict the literature.
   sometimes a coast. It also has soil fertility and initial vegetation (forest and meadow). Water is unbuildable;
   slope raises construction cost.
 * Land uses: wild, farm, vacant, road, residential, commercial, industrial, park, civic, construction.
+* Streets follow a planned grid with 5-cell spacing. The grid lines are a reserved right-of-way: nothing private
+  is built on them, so the network can always be extended. A street serves the lots up to two cells away along
+  it, so every cell of a block has access.
 * The founding settlement is a river crossing with a few streets, homes, shops, workshops, a town hall and about
-  400 households, all employed. Everything after that grows from agent decisions.
+  400 households, nearly all employed. Everything after that grows from agent decisions.
 * Time step: one month. Indicators are recorded every tick.
+* **Money of the day.** The outside world grows by `outside_growth` a year. Every money-denominated parameter
+  (wages, construction and demolition costs, farm rents, amenity and service values, commute costs, road costs,
+  thresholds, and the money amounts in tax schedules: income brackets, wealth and estate exemptions, head and
+  pollution taxes) is indexed to that path, so relative prices stay put over long runs.
 
 ## Agents
 
@@ -25,13 +32,13 @@ contradict the literature.
 | **Household** | skill (log-normal), effort cost, cash, debt, home, lease rent, job, age, generation, net worth | work or not, which job, where to live, how much to consume, whether to stay, buying property |
 | **Firm** | sector (retail / industry / public), parcel, owner, productivity, wage rate, workers, cash, emission intensity | hiring and firing, wages, abatement, exit |
 | **Owner** (a household, an absentee investor or the government) | title, mortgage, Harberger markup | rents, maintenance, build / wait / keep, sell, self-assessed value |
-| **Absentee capital** | deep pockets, required return = outside return + 1.5% | buys and develops land when the after-tax value beats the price; its income leaves the city |
+| **Absentee capital** | deep pockets, required return = outside return + 1.5% | buys and develops land when the after-tax value beats the price; its income leaves the city; stops paying tax on parcels worth nothing |
 | **Government** | cash or debt, programme budgets | taxes (per the active modules), spends by the user's mix, builds roads, parks and civic buildings |
-| **Outside world** | utility level by skill, export price (AR(1) business cycle), interest | the open-city closure: migration in and out |
+| **Outside world** | utility level by skill, export price (AR(1) business cycle × downward-sloping demand), interest | the open-city closure: migration in and out |
 
 ## The monthly pipeline (`sim.rs`)
 
-1. **exogenous:** export-price cycle.
+1. **exogenous:** export-price cycle, and the export price level given last month's export volume.
 2. **fields:**
    * municipal boundary;
    * job accessibility (soft-min distance);
@@ -59,7 +66,7 @@ contradict the literature.
 10. **commercial rents:** renegotiation with tenant firms.
 11. **assessment:** quarterly mass appraisal; **declare:** Harberger self-assessment; **land market:** forced
     sales, voluntary sales and Harberger buy-outs.
-12. **development:** construction progress, then build / wait / keep decisions.
+12. **development:** construction progress, then build / renovate / wait / keep decisions.
 13. **government:** budget, roads, parks and civic buildings; **firm exit/entry**.
 14. **emigration, immigration, demographics** (death and inheritance), **environment**, **net worth**,
     **price indices** (feeding expectations).
@@ -74,7 +81,8 @@ Growing perpetuity of after-tax cash flow:
 V = (12·NOI·(1 − t_inc) − T_fixed) / (r − g + h + w)
 ```
 
-* **NOI:** expected rent × units × expected occupancy − maintenance.
+* **NOI:** expected rent × units × expected occupancy − maintenance. Business space is priced at the firm
+  bid-rent, but never much above the rents tenants nearby actually pay.
 * **T_fixed:** annual property-type taxes on the *assessed* land value (comparables, so unaffected by the owner's
   own choices) and on the building value, plus any vacancy tax.
 * **h:** the Harberger rate (the declared value tracks own value); **w:** the owner's marginal wealth-tax rate;
@@ -82,7 +90,10 @@ V = (12·NOI·(1 − t_inc) − T_fixed) / (r − g + h + w)
 * **r:**
   * absentee: outside return + 1.5%;
   * residents: deposit rate + 3.5%.
-* **g:** adaptive expectation, long-run growth + `speculation` × recent rent and price trend, capped below r.
+* **g:** adaptive expectation: long-run growth + `speculation` (0.1) × the recent *real rent* trend, bounded to
+  −2 / +1.5 points around long-run growth and below r. Land prices are deliberately not extrapolated: they are
+  themselves valuations built on g, and feeding them back produced self-fulfilling boom-bust cycles in land
+  values (100× within a few years).
 
 Consequences that follow from this formula rather than being imposed:
 * A land value tax is a fixed charge, so it is neutral for height and maintenance. It still lowers land prices,
@@ -110,23 +121,47 @@ An existing building is valued as it stands. Let business premises are worth at 
 tenant pays, as an appraiser would value them, not only what a newcomer would bid in today's labour market.
 Without that, a fully let factory looked worthless whenever labour was tight and was torn down.
 
+* **expected occupancy for business space:** the lower of what the labour market can staff, local business
+  occupancy and city-wide business occupancy, minus absorption, so empty premises deter new ones.
+
 The owner then **builds** only if the residual (value − cost − demolition) beats both keeping the current use and
 **waiting a year**. Waiting means (value × (1+g) − cost)/(1+r) plus interim after-tax income. A land tax paid on
-an idle lot lowers that interim income. Household owners need a 30% down payment, or they cannot build.
+an idle lot lowers that interim income. Household owners need a 30% down payment; if they cannot pay it, they sell
+to outside capital when its bid beats keeping the parcel.
+
+A run-down building can instead be **renovated** to new condition for half its construction cost times the
+missing condition, when that adds more value than rebuilding. **Maintenance** is decided each month the same way:
+the owner pays the upkeep if their own after-tax valuation of the building in better condition exceeds it. This
+includes the point (condition 0.12) below which nobody new will rent a dwelling.
 
 ### Land market (`land.rs`)
 
-* **Assessment** (quarterly, smoothed over about 2 years):
-  * observed land residuals of built parcels (capitalized actual rents minus depreciated building value) and
-    recent sale prices;
-  * spatially smoothed;
-  * floored at agricultural value;
-  * with ± assessment noise.
+* **Assessment** (quarterly, smoothed symmetrically over about a year):
+  * land is valued **as if vacant**: what a typical investor would pay for the site given its best permitted
+    project, local rents and occupancy and the tax schedule. Nothing the owner has built enters, so a land tax
+    stays a fixed charge;
+  * land without street access can only be farmed, so it is assessed as farmland;
+  * recent sale prices of unbuilt land are blended in. A built parcel sells with its building and leases (a sitting
+    tenant may pay far above market rent), so its price minus replacement cost is not a land comparable;
+  * values are floored at agricultural value;
+  * with ± assessment noise;
+  * the smoothing is symmetric, as in mass appraisal over several years of evidence. The best-project residual is
+    a thin margin of property value over construction cost: a nearby project starting, or a quarter's dip in
+    expected occupancy, can wipe it out and it returns a quarter later. Passing every dip straight through (an
+    instant appeal) made individual parcels' land values collapse and recover within a year or two;
+  * the value is **self-consistent with the land tax**: buyers deduct the tax on the assessed land, and the
+    assessment is the land value, so the assessor solves `L = V(L)` (property taxes are linear in `L`, so
+    `L = V(0) / (1 + c)`). Valuing at last quarter's assessment instead made high assessments produce low values
+    and vice versa, and under a 6% land tax assessments oscillated every quarter.
 * **Voluntary sales:** a sample of parcels is offered to the absentee investor and a few resident households
   with savings. A trade happens if the best bid exceeds the owner's own valuation × (1 + transfer tax). Bids
   between the two count as **blocked sales** (lock-in).
 * **Forced sales:** households with negative cash sell their most valuable parcel at a discount. This is the
   liquidity channel for wealth tax, property tax, mortgages and estate tax.
+* **Tax default and foreclosure:** outside capital has no other stake in the city. When a parcel is worth nothing
+  to its absentee owner net of future taxes, the owner stops paying and offers it for sale. If nobody buys within
+  a year, the city forecloses and auctions the parcel to the highest bidder. Taxes are therefore never paid out
+  of nowhere on land that cannot earn them.
 * **Harberger:**
   * owners declare own value × a personal markup;
   * the markup decays when unchallenged and rises after a buy-out;
@@ -139,42 +174,59 @@ an idle lot lowers that interim income. Household owners need a 30% down payment
   means-tested welfare, minus commute cost. A job seeker who would accept without taxes but not with them counts
   as a **deterred worker**.
 * **Housing.**
-  * Who searches: the unhoused, the rent-burdened (> 55%) and a random 3%/month.
+  * Who searches: the unhoused, those in dwellings too run-down to let, the rent-burdened (> 55%) and a random
+    3%/month.
   * Each samples about 10 vacancies they can afford (rent ≤ 50% of budget).
   * They pick by utility (amenity + services − pollution − commute − rent − disrepair) plus Gumbel noise, and
     move if it beats staying.
-* **Rents.** Landlords cut asking rents when units stand empty. Full buildings raise rents only when
-  households queue (unhoused people or would-be immigrants), plus inflation drift. Leases renew yearly.
-* **Consumption.** A buffer-stock rule out of disposable income and cash. Part is spent at local shops; the rest
-  is imported.
+* **Rents.** Landlords adjust asking rents to vacancy (their building's and the neighbourhood's) against a natural
+  rate of 5%: rents rise in tight markets, faster when households queue (unhoused people, would-be immigrants,
+  households in unlettable dwellings), and fall, more slowly, in slack ones. Leases renew yearly. Vacancy moves rents
+  only gently (`housing_rent_adjust`, at most about 6% a year beyond trend growth). Tenants feel a rent only at
+  renewal and leave after months of discontent, so landlords who chased vacancy faster overshot. That made a
+  ten-year citywide rent cycle of ±15%, which the leveraged land residual turned into tenfold land value swings.
+  A full building with people queueing for homes is a shortage landlords can see directly, so there rents rise
+  fast (`housing_queue_response`). That is what lets a young, housing-short city grow.
+* **Consumption.** A buffer-stock rule out of disposable income (after the rent actually paid; owner-occupiers
+  pay none) and cash. Part is spent at local shops; the rest is imported.
 * **Migration** (open city):
-  * Would-be immigrants come if the expected after-tax utility for their skill beats the outside option plus
-    moving cost, and housing is available. Otherwise they become **latent demand**, which landlords and
-    developers see.
+  * Prospective movers arrive at 0.6% of the population a month, plus a quarter of the advertised vacancies.
+  * They come if the expected after-tax utility for their skill (net of effort, typical commute, rent, dividend)
+    beats the outside option plus moving cost, and they can afford a typical vacant home. If no home is free they
+    become **latent demand**, which landlords and developers see.
   * Residents leave after about 8 months of being worse off than outside. Capital income counts as portable,
-    taxed at outside rates. Wealth leaving with emigrants is **capital flight**.
+    taxed at outside rates. Emigrants sell their property and businesses to outside capital; the wealth leaving
+    with them is **capital flight**.
+  * **Congestion:** commuting costs scale with `1 + (households / 20 000)^0.6`, so a larger city is a slower one.
   * The unhoused give up after a few months.
 * **Death and inheritance.** The heir continues the household with the estate, net of estate tax, and a skill
   that regresses to the mean.
 
 ### Firms
 
-* **Industry** sells unlimited quantities at the export price (Y = A·S^0.85 with agglomeration). It hires while
-  the marginal product exceeds the wage, and chooses emission intensity to minimize pollution tax plus abatement
-  cost.
-* **Shops** capture local spending via the Huff gravity model with an outside "shop elsewhere" option.
+* **Industry** sells to the outside world (Y = A·S^0.85 with agglomeration). It hires while the marginal product
+  exceeds the wage, and chooses emission intensity to minimize pollution tax plus abatement cost. The outside
+  market is not unlimited: once the city's exports exceed `export_market_size`, the export price falls with
+  elasticity 3. Without this (and congestion), agglomeration would make the city grow until the map is full.
+* **Shops** capture local spending via the Huff gravity model with an outside "shop elsewhere" option. A worker
+  can serve at most `retail_output_per_worker` of sales a month; the rest is bought elsewhere.
+* **Business rents:** landlords raise a tenant's rent while it earns a margin above 15% and cut it when the
+  margin falls below 3%; empty premises are offered at falling rents. A tenant does not pay more than 1.3× what
+  the premises would cost a typical firm (it would move), so a landlord captures the location's rent, not one
+  tenant's productivity.
 * Wages rise when vacancies stay unfilled *and* the extra worker pays. They fall with losses or high
   unemployment.
-* Firms exit after sustained losses. New firms enter empty premises when expected after-tax profit is positive.
-  They are founded by resident savers or by outside capital.
+* Firms exit after about a year of losses. New firms enter empty premises when expected after-tax profit is
+  positive. They are founded by resident savers or by outside capital.
 
 ### Government
 
-* Revenue is split by the user's spending mix, plus a slow draw-down of reserves.
-* **Services:** staff civic buildings and build new ones where coverage is lacking. Coverage adds value to
-  nearby locations.
+* Revenue is split by the user's spending mix, plus a slow draw-down of reserves. Reserves earn the deposit rate.
+* **Services:** staff civic buildings, and build a new one when the budget could staff more than the existing
+  and planned buildings hold, residents need more staff, and it can be paid for within the debt limit. Coverage
+  adds value to nearby locations.
 * **Roads:** extend the block grid where it unlocks the most rent potential, but only while serviced idle land
-  is scarce relative to construction activity.
+  that is worth building on is scarce relative to construction activity.
   * The grid is a **mapped street plan** (an official map, like Manhattan's 1811 grid): every fifth row and
     column through the founding crossing. Owners may farm land on it but not build there, and it is exempt from
     property taxes until the road comes. The government then buys it at its assessed (as-if-unreserved) value.
@@ -182,9 +234,11 @@ an idle lot lowers that interim income. Household owners need a 30% down payment
     value, demolition and the tenants' relocation payments. That makes it much more expensive than open land,
     so the planner chooses it only when nothing cheaper unlocks as much land.
 * **Parks:** buy land at market price where many residents lack park access (never on the street plan).
-* **Dividend:** equal per household. **Welfare:** a top-up with 50% withdrawal, extra for the unhoused.
-* **Surplus rebate:** reserves above 12 months of revenue that no programme can absorb are returned equally.
-  Otherwise high-tax regimes would simply destroy money.
+* Road and park funds accumulate; what is left after the month's works is capped at three years of allocations.
+* **Dividend:** equal per household. **Welfare:** a top-up with 50% withdrawal, extra for the unhoused, at the
+  highest level the welfare budget can pay for.
+* **Surplus rebate:** reserves above 12 months of revenue that no programme can absorb are returned equally
+  (a twelfth per month). Otherwise high-tax regimes would simply destroy money.
 * A deficit is allowed up to a debt limit, after which spending is cut.
 
 ### Environment
@@ -221,7 +275,8 @@ an idle lot lowers that interim income. Household owners need a 30% down payment
   value.
 * **Land and buildings:** land price index, average and maximum floors, urban footprint, idle lots inside the
   city, speculative holds, derelict buildings.
-* **Transactions and construction:** sales, forced sales, Harberger buy-outs, construction starts and completions.
+* **Transactions and construction:** sales, forced sales, tax foreclosures, Harberger buy-outs, construction
+  starts and completions, renovations.
 * **Environment and access:** green cover, forest cells, population-weighted pollution exposure, emissions,
   average commute, parks.
 * **Government:** revenue by instrument, spending by programme, reserves.
@@ -230,24 +285,56 @@ an idle lot lowers that interim income. Household owners need a 30% down payment
 * **Henry George test:** annual differential land rent vs. spending on public goods.
 * **Mean welfare:** residents' money-metric utility.
 
+## Plausibility audit (`audit.rs`)
+
+`taxsim audit` and the test suite check, every simulated year, that the city stays economically coherent:
+
+* tax revenue stays well below output, and property taxes stay below the rent the buildings actually earn;
+* business space is not mostly empty, there are not far more job slots than households, and there are enough
+  dwellings;
+* unemployment, homelessness, vacancy, rent burden, wages and rents stay within broad bounds;
+* the government neither hoards decades of revenue nor runs up runaway debt, transfers do not exceed residents'
+  market income, and welfare never pays out more than its budget;
+* no household holds absurd cash, and land prices stay finite and do not swing more than threefold within five
+  years (after the founding period);
+* bookkeeping: no parcel or firm belongs to a household that has left, every firm's head count and skill total
+  match the households it employs, and no building blocks a planned street.
+
+The citywide land price index can stay calm while individual parcels boom and bust. So the test suite also
+follows every taxable parcel's assessment for 50 years in a mature Georgist city: 90% of valuable parcels must
+not rise or fall more than threefold and back within any five years. Before the slower residential rent
+adjustment and the symmetric assessment smoothing, the 90th percentile parcel swung about 14× and back on the
+full-size map, and parcels worth millions were reassessed near zero for a year.
+
+An earlier version failed these badly on long runs. Outside owners paid any tax out of nowhere, land was assessed
+from fictional bid-rents, shops could sell any amount per worker, and the road network froze. A 500-year Georgist
+run ended with 26 households, empty commercial towers and tax revenue growing without bound. The mechanisms above
+(tax default, as-if-vacant assessment, shop capacity, observed business rents, street right-of-way, congestion and
+export demand) are the fixes. A bookkeeping bug did similar damage more quietly: when a worker died, their
+employer's skill total lost the heir's skill instead of theirs, so factories built up phantom skill (1.9× their
+real staff by year 200). Export income per worker grew fourfold, wages fell and the surplus went to owners.
+
 ## What the model currently says, and how much to trust it
 
-These are 10 seeds × 40 years, from `taxsim compare` (mean ± standard error; see the README). Differences
-smaller than a couple of standard errors are noise.
+These are 6 seeds × 40 years, from `taxsim compare` (mean ± standard error; see the README). Differences
+smaller than a couple of standard errors are noise. All presets also pass every audit check over 300 years
+(seed 1), and the Georgist preset for 500 years; cities settle at roughly 26 000–40 000 households.
 
 * **Georgist** (6% land value tax, dividend):
-  * land prices −25–30% versus the status quo, rent burden ~28% vs ~34%;
-  * a slightly more compact city with shorter commutes and slightly taller buildings;
-  * more land owned by residents and much higher average resident welfare;
-  * but higher wealth inequality (no income or wealth taxes), and population within noise of the status quo.
-* **Wealth tax** (2% above 1M): lower wealth inequality and the most departures of wealthy households. City size
-  is within noise.
-* **Nordic** (high income tax and VAT): the lowest wealth inequality and the most deterred workers.
-* **Harberger at 4% of total value:**
-  * development nearly stops;
-  * the self-assessed tax falls on buildings too, so waiting beats building until rents rise far more;
-  * a mechanism-level warning about COST rates, not a calibrated forecast.
-* **Head tax:** a small city, because low earners leave.
+  * a larger city than the status quo (≈ 9 600 vs ≈ 8 000 households, about two standard errors), higher
+    output, slightly lower rents and taller buildings;
+  * more land owned by residents (absentee share ≈ 72% vs ≈ 100%) and much higher average resident welfare;
+  * but modest revenue: land rent is small where land is plentiful and buildings are priced near construction
+    cost, so a 6% land tax raises about a third of the status quo's revenue;
+  * and much higher wealth inequality (no income or wealth taxes).
+* **Wealth tax** (2% above 1M): lower wealth inequality than the status quo and more departures of wealthy
+  households. City size is within noise.
+* **Nordic** (high income tax and VAT): the lowest inequality, the highest revenue and the most deterred workers.
+  In this run it is also one of the largest cities.
+* **Harberger at 4% of total value:** the smallest city, with almost no building above one floor: the
+  self-assessed tax falls on buildings too, so waiting beats building. A mechanism-level warning about COST rates,
+  not a calibrated forecast.
+* **Head tax:** a large but very unequal city with little revenue.
 
 **Known limitations and sensitivities.** Read the results as "what these mechanisms produce", not as forecasts.
 * **Ownership granularity.** Ownership is per parcel (a whole building). Most households can never afford one,
@@ -262,9 +349,11 @@ smaller than a couple of standard errors are noise.
   Real cities mostly prevent this with use zoning. In test runs, turning zoning on cut rebuilds by 2–10×.
 * **Stochastic and path-dependent.** Housing cycles emerge from construction lags, and terrain matters. Use many
   seeds.
+* **City size** is set by congestion and the outside demand for exports (`congestion_scale`,
+  `export_market_size`). Without them agglomeration makes the city fill the map.
 * **Not modelled:** monetary policy, credit cycles beyond simple mortgages, international trade beyond a single
-  export good, traffic congestion (commutes are Manhattan distance), multiple competing municipalities, and
-  political feedback.
+  export good, local traffic congestion (commutes are Manhattan distance with a city-wide congestion factor),
+  multiple competing municipalities, and political feedback.
 * **Calibration** targets the stylized facts in the research notes (vacancy 3–10%, rent burden 25–35%,
   income Gini 0.2–0.5) loosely, by hand. A systematic calibration with `taxsim` sweeps is future work.
 

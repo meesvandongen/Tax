@@ -42,7 +42,7 @@ pub fn progress(w: &mut World) {
 /// allowance (households) or lease buy-out (firm owner) and leave.
 /// Returns the compensation, which the caller charges to the owner.
 pub fn clear_site(w: &mut World, i: usize) -> f64 {
-    let months = w.cfg.econ.relocation_months as f64;
+    let months = w.econ.relocation_months as f64;
     let mut paid = 0.0;
     if w.p.land_use[i] == LandUse::Residential && w.p.occupied[i] > 0 {
         let tenants: Vec<u32> =
@@ -80,7 +80,7 @@ pub fn start_construction(w: &mut World, i: usize, d: &DevOption) {
         Owner::Gov => w.gov.cash -= compensation,
         Owner::Absentee => w.flows.absentee_income -= compensation,
     }
-    let months = w.cfg.econ.construction_months as u32 + d.floors as u32 / 4;
+    let months = w.econ.construction_months as u32 + d.floors as u32 / 4;
     w.p.land_use[i] = LandUse::Construction;
     w.p.target_use[i] = d.land_use;
     w.p.floors[i] = d.floors;
@@ -97,8 +97,8 @@ pub fn start_construction(w: &mut World, i: usize, d: &DevOption) {
 fn interim_income(w: &World, i: usize, inv: &econ::Investor) -> f64 {
     let u = w.p.land_use[i];
     let noi = match u {
-        LandUse::Farm => w.cfg.econ.farm_rent as f64 * (0.4 + w.terrain.fertility[i] as f64),
-        LandUse::Wild => 0.5 * w.cfg.econ.farm_rent as f64 * (0.4 + w.terrain.fertility[i] as f64),
+        LandUse::Farm => w.econ.farm_rent as f64 * (0.4 + w.terrain.fertility[i] as f64),
+        LandUse::Wild => 0.5 * w.econ.farm_rent as f64 * (0.4 + w.terrain.fertility[i] as f64),
         _ if u.is_private_use() => {
             let b = econ::building_value(w, i);
             econ::noi(w, i, u, w.p.occupied[i], 1.0, b)
@@ -120,11 +120,28 @@ pub enum Decision {
     Keep,
     Wait,
     Build(DevOption),
+    /// Restore the existing building to new condition at this cost.
+    Renovate(f64),
 }
 
 pub fn decide(w: &World, i: usize, inv: &econ::Investor) -> Decision {
-    let Some(best) = econ::best_development(w, i, inv) else { return Decision::Keep };
     let cur = econ::current_use_value(w, i, inv);
+    // A run-down building can be renovated rather than replaced.
+    let renovation = if w.p.land_use[i].is_private_use() && w.p.condition[i] < 0.6 {
+        let cost = econ::renovation_cost(w, i);
+        let gain = econ::building_in_condition_value(w, i, inv, 1.0) - cur - cost;
+        (gain > 0.1 * cost).then_some((gain, cost))
+    } else {
+        None
+    };
+    let Some(best) = econ::best_development(w, i, inv) else {
+        return renovation.map_or(Decision::Keep, |(_, cost)| Decision::Renovate(cost));
+    };
+    if let Some((gain, cost)) = renovation {
+        if gain >= best.residual - cur {
+            return Decision::Renovate(cost);
+        }
+    }
     if best.residual <= 0.0 || best.residual <= cur * 1.05 {
         return Decision::Keep;
     }
@@ -142,7 +159,7 @@ pub fn decide(w: &World, i: usize, inv: &econ::Investor) -> Decision {
 
 pub fn run(w: &mut World) {
     progress(w);
-    let e = w.cfg.econ.clone();
+    let e = w.econ.clone();
     // Owners of serviced parcels review their options now and then.
     let candidates: Vec<usize> = (0..w.p.len())
         .filter(|&i| w.p.road_access[i] && w.p.land_use[i].is_developable() && crate::property::taxable(w, i))
@@ -163,6 +180,29 @@ pub fn run(w: &mut World) {
                 // Profitable to build, but more profitable to hold: speculation.
                 w.p.months_held_empty[i] = w.p.months_held_empty[i].saturating_add(1);
             }
+            Decision::Renovate(cost) => {
+                let ok = match owner {
+                    Owner::Hh(id) => {
+                        let h = &mut w.hh[id as usize];
+                        let ok = h.cash >= cost;
+                        if ok {
+                            h.cash -= cost;
+                        }
+                        ok
+                    }
+                    Owner::Gov => false,
+                    Owner::Absentee => {
+                        w.flows.absentee_income -= cost;
+                        true
+                    }
+                };
+                if ok {
+                    w.p.condition[i] = 1.0;
+                    w.p.months_vacant[i] = 0;
+                    w.flows.construction_spend += cost;
+                    w.flows.renovations += 1;
+                }
+            }
             Decision::Build(d) => {
                 // Financing: households need a down payment, else they sell.
                 let ok = match owner {
@@ -181,6 +221,8 @@ pub fn run(w: &mut World) {
                     _ => true,
                 };
                 if !ok {
+                    // Can't finance the project: sell to someone who can.
+                    crate::land::sell_to_developer(w, i);
                     continue;
                 }
                 // Distortion metric: what would have been built without taxes.

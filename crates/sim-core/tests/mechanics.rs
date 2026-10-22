@@ -95,14 +95,19 @@ fn land_taxes_capitalise_into_lower_land_values() {
     let mut sim = grown_city(48);
     let w = &mut sim.world;
     let parcels = candidate_parcels(w);
+    // Land as the assessor values it: as if vacant, net of its own land tax.
     let value = |w: &mut World, specs: &[TaxSpec]| -> f64 {
         w.taxes = TaxSystem::new(specs);
         let inv = w.absentee_investor();
-        parcels.iter().map(|&i| sim_core::land::farm_value(w, i, &inv) + sim_core::econ::valuation(w, i, &inv)).sum()
+        parcels
+            .iter()
+            .map(|&i| sim_core::land::farm_value(w, i, &inv) + sim_core::econ::self_consistent_site_value(w, i, &inv))
+            .sum()
     };
     let v0 = value(w, &[]);
     let v1 = value(w, &[TaxSpec::LandValue { rate: 0.05 }]);
-    assert!(v1 < v0 * 0.8, "LVT should lower land values: {v0} -> {v1}");
+    // A 5% tax capitalises at 1 / (1 + 0.05 / (r − g)) with r − g ≈ 6%.
+    assert!(v1 < v0 * 0.7, "LVT should lower land values: {v0} -> {v1}");
 }
 
 #[test]
@@ -128,6 +133,54 @@ fn every_preset_runs() {
         let mut sim = Simulation::new(cfg);
         sim.run(60);
         assert!(sim.world.history.last().unwrap().households > 0, "{name}");
+    }
+}
+
+/// A city grown for decades must pass every plausibility check in
+/// `audit::check` (money is not created from nothing, markets clear,
+/// bookkeeping is consistent), checked once a year.
+#[test]
+fn grown_city_passes_audit() {
+    let cfg = SimConfig { seed: 7, width: 96, height: 96, ..Default::default() };
+    let mut sim = Simulation::new(cfg);
+    let mut failures = Vec::new();
+    for year in 1..=60 {
+        sim.run(12);
+        for issue in sim_core::audit::check(&sim.world) {
+            failures.push(format!("y{year}: {issue}"));
+        }
+    }
+    assert!(failures.is_empty(), "audit failures:\n{}", failures.join("\n"));
+    assert!(sim.world.history.last().unwrap().households > 1000, "the city should grow");
+}
+
+/// Land without street access can only be farmed, so it is assessed as
+/// farmland: a land tax cannot exceed what its owner could earn on it.
+#[test]
+fn unserviced_land_is_assessed_as_farmland() {
+    let sim = grown_city(120);
+    let w = &sim.world;
+    let inv = w.absentee_investor();
+    let mut checked = 0;
+    for i in 0..w.p.len() {
+        if w.p.in_city[i] && !w.p.road_access[i] && w.p.land_use[i] == LandUse::Wild {
+            let farm = sim_core::land::farm_value(w, i, &inv) as f32;
+            assert!(w.p.assessed_land[i] <= 1.35 * farm, "cell {i}: {} vs farm {farm}", w.p.assessed_land[i]);
+            checked += 1;
+        }
+    }
+    assert!(checked > 0);
+}
+
+/// A shop worker can only serve so many customers: spending beyond that
+/// goes elsewhere instead of becoming unbounded revenue per worker.
+#[test]
+fn retail_sales_per_worker_are_bounded() {
+    let sim = grown_city(120);
+    let w = &sim.world;
+    for f in w.firms.iter().filter(|f| f.alive && f.sector == sim_core::types::Sector::Retail && f.workers > 0) {
+        let cap = w.econ.retail_output_per_worker * f.productivity * f.workers as f32;
+        assert!(f.revenue <= cap * 1.001, "revenue {} above capacity {cap}", f.revenue);
     }
 }
 
@@ -179,4 +232,71 @@ fn roads_expropriate_buildings_in_the_way_at_full_compensation() {
     assert!(w.gov.roads_expropriated > 0, "no building expropriated");
     // The owners were paid at least the buildings' replacement value.
     assert!(w.gov.spend_compensation > 400_000.0 * w.gov.roads_expropriated as f64);
+}
+
+/// The assessor values land net of the land tax on that same assessment
+/// (`L = V(L)`). Valuing it at last quarter's assessment instead made a
+/// high assessment produce a low value and vice versa, so under a heavy land
+/// tax assessments oscillated every quarter.
+#[test]
+fn land_assessment_is_consistent_with_its_own_tax() {
+    let mut sim = grown_city(48);
+    let w = &mut sim.world;
+    w.taxes = TaxSystem::new(&[TaxSpec::LandValue { rate: 0.06 }]);
+    let inv = w.absentee_investor();
+    let mut checked = 0;
+    for i in candidate_parcels(w) {
+        let l = sim_core::econ::self_consistent_site_value(w, i, &inv);
+        if l < 50_000.0 {
+            continue;
+        }
+        let v = sim_core::econ::vacant_site_value_at_land(w, i, &inv, l);
+        assert!((v - l).abs() < 0.05 * l, "cell {i}: assessed {l:.0} but worth {v:.0} at that assessment");
+        checked += 1;
+    }
+    assert!(checked > 10);
+}
+
+/// Individual parcels' land values follow their location's fortunes, not a
+/// boom/bust cycle: few parcels' assessments rise or fall more than
+/// threefold and back within five years once the city has matured.
+#[test]
+fn parcel_land_values_do_not_cycle() {
+    let mut cfg = SimConfig { seed: 7, width: 96, height: 96, ..Default::default() };
+    cfg.policy = sim_core::presets::preset("georgist").unwrap();
+    let mut sim = Simulation::new(cfg);
+    sim.run(30 * 12);
+    // Half-yearly snapshots of assessed land, in constant money.
+    let mut series: Vec<Vec<f32>> = Vec::new();
+    for _ in 0..50 * 2 {
+        sim.run(6);
+        let ix = sim.world.index;
+        series.push(sim.world.p.assessed_land.iter().map(|v| v / ix).collect());
+    }
+    let w = &sim.world;
+    let mut worst = Vec::new();
+    for i in 0..w.p.len() {
+        if !sim_core::property::taxable(w, i) || !w.p.land_use[i].is_developable() {
+            continue;
+        }
+        let mut swing = 1f32;
+        for win in series.windows(10) {
+            let v: Vec<f32> = win.iter().map(|s| s[i]).collect();
+            let hi = v.iter().cloned().fold(0f32, f32::max);
+            let lo = v.iter().cloned().fold(f32::INFINITY, f32::min);
+            if hi < 200_000.0 {
+                continue;
+            }
+            // A round trip: a peak above both ends of the window, or a trough below both.
+            let (a, b) = (v[0], v[9]);
+            swing = swing.max(hi / a.max(b).max(1.0)).max(a.min(b) / lo.max(1.0));
+        }
+        if swing > 1.0 {
+            worst.push(swing);
+        }
+    }
+    assert!(worst.len() > 100, "too few valuable parcels: {}", worst.len());
+    worst.sort_by(|a, b| a.total_cmp(b));
+    let p90 = worst[worst.len() * 9 / 10];
+    assert!(p90 < 3.0, "land values cycle: 90th percentile parcel swings {p90:.1}x and back within 5 years");
 }

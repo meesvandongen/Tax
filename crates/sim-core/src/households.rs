@@ -14,7 +14,7 @@ pub fn begin_month(w: &mut World) {
 }
 
 pub fn settle(w: &mut World) {
-    let e = w.cfg.econ.clone();
+    let e = w.econ.clone();
     let sales = w.taxes.sales_rate();
     let n = w.dims.len();
     let mut pool = vec![0f32; n];
@@ -43,12 +43,13 @@ pub fn settle(w: &mut World) {
         let tax = income_tax + wealth_tax + head;
         w.gov.cash += tax;
 
+        let rent = crate::housing::rent_paid(w, id as u32) as f64;
         let h = &mut w.hh[id];
         h.cash -= tax;
         h.taxes_paid += tax as f32;
 
         // Consumption: buffer-stock rule out of disposable income and cash.
-        let disposable = (labor + capital + h.income_transfer as f64 - h.taxes_paid as f64 - h.rent as f64).max(0.0);
+        let disposable = (labor + capital + h.income_transfer as f64 - h.taxes_paid as f64 - rent).max(0.0);
         let mut c = e.marginal_propensity_consume as f64 * disposable + e.wealth_consumption as f64 * h.cash.max(0.0);
         c = c.max((e.subsistence as f64).min(h.cash.max(0.0) * 0.5));
         c = c.min(h.cash.max(0.0));
@@ -73,7 +74,7 @@ pub fn settle(w: &mut World) {
 
 /// Recompute net worth: cash − mortgages + assessed property + firm equity.
 pub fn update_wealth(w: &mut World) {
-    let r = w.cfg.econ.outside_return as f64 + 0.05;
+    let r = w.econ.outside_return as f64 + 0.05;
     let mut wealth: Vec<f64> = w.hh.iter().map(|h| h.cash).collect();
     let mut debt = vec![0f64; w.hh.len()];
     for i in 0..w.p.len() {

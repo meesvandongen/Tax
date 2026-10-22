@@ -4,6 +4,7 @@
 //! taxsim presets
 //! taxsim run     [--preset NAME | --scenario FILE] [--years N] [--seed S] [--size N] [--csv FILE] [--profile]
 //! taxsim compare [--presets a,b,c] [--years N] [--seeds K] [--size N] [--out DIR]
+//! taxsim audit   [--preset NAME] [--years N] [--every N] [--seed S] [--quiet]
 //! ```
 //! `compare` runs every (preset, seed) pair in parallel on all cores and
 //! prints end-of-run indicators averaged over seeds (paired by seed).
@@ -156,6 +157,35 @@ fn cmd_run(a: &HashMap<String, String>) {
     }
     if a.contains_key("json") {
         println!("{}", serde_json::to_string_pretty(sim.world.history.last().unwrap()).unwrap());
+    }
+}
+
+/// Run one city and print a detailed state report plus plausibility checks
+/// every `--every` years (default 10). Exits non-zero if any check failed.
+fn cmd_audit(a: &HashMap<String, String>) {
+    let cfg = config_from(a);
+    let years: u32 = a.get("years").map(|s| s.parse().unwrap()).unwrap_or(100);
+    let every: u32 = a.get("every").map(|s| s.parse().unwrap()).unwrap_or(10);
+    let quiet = a.contains_key("quiet");
+    let mut sim = Simulation::new(cfg);
+    let mut failures = 0usize;
+    for year in 1..=years {
+        sim.run(12);
+        let issues = sim_core::audit::check(&sim.world);
+        if year % every == 0 || year == years {
+            if !quiet {
+                print!("{}", sim_core::audit::report(&sim.world));
+            }
+            println!("{}", summary_line(sim.world.history.last().unwrap()));
+        }
+        for s in &issues {
+            println!("  !! y{year}: {s}");
+        }
+        failures += issues.len();
+    }
+    println!("{failures} check failures");
+    if failures > 0 {
+        std::process::exit(1);
     }
 }
 
@@ -332,6 +362,7 @@ fn main() {
     match cmd {
         "run" => cmd_run(&a),
         "compare" => cmd_compare(&a),
+        "audit" => cmd_audit(&a),
         "presets" => {
             for (n, d) in PRESETS {
                 println!("{n:<14} {d}");

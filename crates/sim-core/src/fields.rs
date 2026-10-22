@@ -38,6 +38,12 @@ pub struct Fields {
     pub rent_res: Vec<f32>,
     pub rent_com: Vec<f32>,
     pub rent_ind: Vec<f32>,
+    /// Business rents per job slot that tenants nearby actually pay, and how
+    /// much evidence there is for them (0 = none, → 1 = plenty).
+    pub obs_com: Vec<f32>,
+    pub obs_ind: Vec<f32>,
+    pub evid_com: Vec<f32>,
+    pub evid_ind: Vec<f32>,
     /// Smoothed occupancy rates per use.
     pub occ_res: Vec<f32>,
     pub occ_com: Vec<f32>,
@@ -74,6 +80,10 @@ impl Fields {
             rent_res: z(),
             rent_com: z(),
             rent_ind: z(),
+            obs_com: z(),
+            obs_ind: z(),
+            evid_com: z(),
+            evid_ind: z(),
             occ_res: z(),
             occ_com: z(),
             occ_ind: z(),
@@ -146,7 +156,7 @@ pub fn update(w: &mut World) {
     update_city_limits(w);
     let dims = w.dims;
     let n = dims.len();
-    let e = w.cfg.econ.clone();
+    let e = w.econ.clone();
     let p = &w.p;
 
     // ---- sources
@@ -202,14 +212,16 @@ pub fn update(w: &mut World) {
     let mut amenity = vec![0f32; n];
     let mut service = vec![0f32; n];
     let mut loc_res = vec![0f32; n];
+    let ix = w.index;
     for i in 0..n {
         let water = (-w.terrain.water_dist[i] / 3.0).exp() * (!w.terrain.water[i]) as u8 as f32;
-        amenity[i] = PARK_VALUE * (park_frac[i] / ma * 4.0).min(1.0)
-            + WATER_VALUE * water
-            + NATURE_VALUE * (nature_frac[i] / ma).min(1.0);
+        amenity[i] = ix
+            * (PARK_VALUE * (park_frac[i] / ma * 4.0).min(1.0)
+                + WATER_VALUE * water
+                + NATURE_VALUE * (nature_frac[i] / ma).min(1.0));
         service[i] = (pub_access[i] / (pop_access[i].max(1.0) * SERVICE_RATIO)).min(1.0);
-        loc_res[i] = -e.commute_cost_per_cell * commute_eff[i] + amenity[i] + SERVICE_VALUE * service[i]
-            - POLLUTION_COST * pollution[i];
+        loc_res[i] = -e.commute_cost_per_cell * commute_eff[i] + amenity[i] + ix * SERVICE_VALUE * service[i]
+            - ix * POLLUTION_COST * pollution[i];
     }
 
     // ---- residential rent surface: hedonic level + location premium.
@@ -217,6 +229,8 @@ pub fn update(w: &mut World) {
     let mut d_res = vec![0f32; n];
     let mut wt_res = vec![0f32; n];
     let mut occ_src = [vec![0f32; n], vec![0f32; n], vec![0f32; n]];
+    let mut biz_rent = [vec![0f32; n], vec![0f32; n]];
+    let mut biz_wt = [vec![0f32; n], vec![0f32; n]];
     let mut unit_src = [vec![0f32; n], vec![0f32; n], vec![0f32; n]];
     for i in 0..n {
         let units = p.units[i] as f32;
@@ -225,6 +239,8 @@ pub fn update(w: &mut World) {
         }
         let occ = p.occupied[i] as f32;
         let k = match p.land_use[i] {
+            // (Dwellings too run-down to let are not part of the market.)
+            LandUse::Residential if p.condition[i] <= crate::housing::LETTABLE_CONDITION => continue,
             LandUse::Residential => 0,
             LandUse::Commercial => 1,
             LandUse::Industrial => 2,
@@ -236,6 +252,21 @@ pub fn update(w: &mut World) {
             // Observations weighted by occupied units: rents that actually clear.
             d_res[i] = p.asking_rent[i] - loc_res[i];
             wt_res[i] = occ.max(0.25 * units);
+        } else if p.firm[i] != NONE {
+            // Business rents that tenants actually pay.
+            biz_rent[k - 1][i] = p.asking_rent[i];
+            biz_wt[k - 1][i] = occ.max(1.0);
+        }
+    }
+    // Developers and assessors cap business rents at what tenants nearby
+    // actually pay (see `econ::market_rent`).
+    let mut biz_obs = [vec![0f32; n], vec![0f32; n]];
+    let mut biz_evid = [vec![0f32; n], vec![0f32; n]];
+    for k in 0..2 {
+        biz_obs[k] = smoothed_mean(&biz_rent[k], &biz_wt[k], dims, 4.0, 0.0);
+        let thin = exp_blur(&biz_wt[k], dims, 4.0);
+        for i in 0..n {
+            biz_evid[k][i] = thin[i] / (thin[i] + 4.0);
         }
     }
     let global = |d: &[f32], wt: &[f32], prev: f32| {
@@ -303,13 +334,19 @@ pub fn update(w: &mut World) {
     f.amenity = amenity;
     f.service = service;
     f.loc_res = loc_res;
-    // Bid-rent surfaces for business space at a typical premises size.
+    let [obs_com, obs_ind] = biz_obs;
+    let [evid_com, evid_ind] = biz_evid;
+    f.obs_com = obs_com;
+    f.obs_ind = obs_ind;
+    f.evid_com = evid_com;
+    f.evid_ind = evid_ind;
+    // Market rents for business space at a typical premises size.
     // (Only where business could locate: serviced land inside the city.)
     for i in 0..n {
         let (rc, ri) = if w.p.in_city[i] || w.p.road_access[i] {
             (
-                crate::econ::firm_bid_rent(w, i, LandUse::Commercial, 18),
-                crate::econ::firm_bid_rent(w, i, LandUse::Industrial, 28),
+                crate::econ::market_rent(w, i, LandUse::Commercial, 18),
+                crate::econ::market_rent(w, i, LandUse::Industrial, 28),
             )
         } else {
             (0.0, 0.0)
@@ -322,9 +359,9 @@ pub fn update(w: &mut World) {
 /// Money value per month of living at `i`, excluding commute (which is
 /// person-specific once employed).
 pub fn residential_quality(w: &World, i: usize) -> f32 {
-    w.f.amenity[i] + SERVICE_VALUE * w.f.service[i] - POLLUTION_COST * w.f.pollution[i]
+    w.f.amenity[i] + w.index * (SERVICE_VALUE * w.f.service[i] - POLLUTION_COST * w.f.pollution[i])
 }
 
 pub fn commute_cost(w: &World, home: usize, job_parcel: usize) -> f32 {
-    w.cfg.econ.commute_cost_per_cell * w.dims.manhattan(home, job_parcel)
+    w.econ.commute_cost_per_cell * w.dims.manhattan(home, job_parcel)
 }

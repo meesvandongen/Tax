@@ -80,17 +80,18 @@ pub fn found_settlement(w: &mut World) {
     // Candidate building plots: road-accessible land near the centre.
     let mut plots: Vec<usize> = (0..dims.len())
         .filter(|&i| w.p.road_access[i] && w.p.land_use[i].is_developable() && !w.terrain.water[i])
-        .filter(|&i| dims.manhattan(i, center) <= 14.0)
+        .filter(|&i| dims.manhattan(i, center) <= 14.0 && !crate::government::on_street_plan(w, i))
         .collect();
     plots.sort_by(|&a, &b| dims.manhattan(a, center).total_cmp(&dims.manhattan(b, center)).then(a.cmp(&b)));
 
     let n_hh = w.cfg.initial_households as usize;
-    let units_per_floor = w.cfg.econ.res_units_per_floor as usize;
+    let units_per_floor = w.econ.res_units_per_floor as usize;
     let res_needed = (n_hh as f32 * 1.08 / (2 * units_per_floor) as f32).ceil() as usize;
-    // Enough jobs for the founders: half industrial, a third in shops.
-    let e = &w.cfg.econ;
-    let n_ind = ((0.5 * n_hh as f32) / (2 * e.ind_jobs_per_floor) as f32).ceil() as usize;
-    let n_com = ((0.33 * n_hh as f32) / e.com_jobs_per_floor as f32).ceil() as usize;
+    // Enough jobs for the founders: most in the export workshops, a fifth
+    // in shops (what local spending can support).
+    let e = &w.econ;
+    let n_ind = ((0.85 * n_hh as f32) / (2 * e.ind_jobs_per_floor) as f32).ceil() as usize;
+    let n_com = ((0.2 * n_hh as f32) / e.com_jobs_per_floor as f32).ceil() as usize;
     let mut res_cells = Vec::new();
     let mut com_cells = Vec::new();
     let mut ind_cells = Vec::new();
@@ -136,7 +137,7 @@ pub fn found_settlement(w: &mut World) {
     }
 
     // Founding households.
-    let sigma = w.cfg.econ.skill_sigma as f64;
+    let sigma = w.econ.skill_sigma as f64;
     for _ in 0..n_hh {
         let skill = w.rng.lognormal(0.0, sigma) as f32;
         let mut h = new_household(w, skill);
@@ -171,7 +172,7 @@ pub fn found_settlement(w: &mut World) {
     }
 
     // Firms with founders' or outside capital.
-    let base = w.cfg.econ.base_wage;
+    let base = w.econ.base_wage;
     for (cells, sector) in [(&com_cells, Sector::Retail), (&ind_cells, Sector::Industry)] {
         for &i in cells.iter() {
             let owner = if w.rng.chance(0.5) { Owner::Hh(by_cash[w.rng.below(top)]) } else { Owner::Absentee };
@@ -204,7 +205,7 @@ pub fn found_settlement(w: &mut World) {
     for id in 0..w.hh.len() {
         w.hh[id].consumption = 1200.0;
         if w.hh[id].home != NONE {
-            w.retail_pool[w.hh[id].home as usize] += 1200.0 * w.cfg.econ.local_spend_share;
+            w.retail_pool[w.hh[id].home as usize] += 1200.0 * w.econ.local_spend_share;
         }
     }
     // Founders start out employed.
@@ -215,7 +216,7 @@ pub fn found_settlement(w: &mut World) {
     }
     w.rng.shuffle(&mut job_slots);
     for id in 0..w.hh.len() as u32 {
-        if w.rng.chance(0.93) {
+        if w.rng.chance(0.97) {
             if let Some(fid) = job_slots.pop() {
                 crate::labour::hire(w, id, fid);
             }

@@ -59,6 +59,15 @@ cargo run --release -p sim-cli -- compare --presets status_quo,georgist,wealth_t
 standard error across seeds. Runs are deterministic: the same seed and policy always give the same history.
 Use many seeds before drawing conclusions. A single run is one stochastic history, and cities differ a lot by terrain.
 
+To check that a run stays plausible, `audit` prints a detailed state report (land uses, households, firms,
+public finances, money flows) every `--every` years and runs plausibility checks every year: tax revenue against
+output, taxes on property against the rent it earns, empty business space, unhoused households, hoarded or
+runaway public money, and bookkeeping invariants. It exits non-zero if any check fails:
+
+```sh
+cargo run --release -p sim-cli -- audit --preset georgist --years 500 --every 50
+```
+
 ## Repository layout
 
 ```
@@ -91,4 +100,6 @@ The mechanism tests check properties the model must have by construction:
 * land taxes capitalize into land values;
 * private development never builds on the mapped street plan;
 * a road blocked by a building expropriates it at full compensation;
-* long runs stay finite.
+* long runs stay finite;
+* a city grown for 60 years passes every audit check;
+* land without street access is assessed as farmland, and shop sales per worker are bounded.

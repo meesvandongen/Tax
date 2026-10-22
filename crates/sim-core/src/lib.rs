@@ -14,6 +14,7 @@
 
 #![allow(clippy::needless_range_loop, clippy::unnecessary_map_or, clippy::manual_is_multiple_of)]
 
+pub mod audit;
 pub mod clock;
 pub mod config;
 pub mod development;

@@ -62,6 +62,7 @@ benchmarks are in [research/technology.md](research/technology.md). In short:
 | `tax/` | **One file per tax instrument**, implementing `TaxModule`; `TaxSystem` aggregates them and keeps a revenue ledger |
 | `presets.rs` | Named policies |
 | `metrics.rs` | City-wide indicators, computed each tick |
+| `audit.rs` | Detailed state report and plausibility checks (money from nowhere, empty markets, bookkeeping), used by `taxsim audit` and the tests |
 | `snapshot.rs` / `inspect.rs` | Render buffers and the parcel inspector |
 
 ### Design rules

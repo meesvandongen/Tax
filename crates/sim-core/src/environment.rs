@@ -5,7 +5,7 @@ use crate::types::*;
 use crate::world::World;
 
 pub fn run(w: &mut World) {
-    let g = w.cfg.econ.nature_regrowth;
+    let g = w.econ.nature_regrowth;
     for i in 0..w.p.len() {
         let pol = (w.f.pollution[i] / 8.0).min(1.0);
         let v = &mut w.p.nature[i];

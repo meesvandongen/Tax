@@ -261,8 +261,21 @@ includes the point (condition 0.12) below which nobody new will rent a dwelling.
   exceeds the wage, and chooses emission intensity to minimize pollution tax plus abatement cost. The outside
   market is not unlimited: once the city's exports exceed `export_market_size`, the export price falls with
   elasticity 3. Without this (and congestion), agglomeration would make the city grow until the map is full.
+  But each export firm sells its own variety, so the market grows with the number of export firms, as
+  `(firms / 300)^0.25` (`export_variety`): a bigger city sells more kinds of things, with diminishing returns.
+* **Offices** (tradable services: finance, software, consulting) also sell to the outside world, with their own
+  market (`office_market_size`, the same variety rule and price elasticity). They locate in commercial
+  buildings and gain much more from clustering than factories: productivity rises with all the jobs within a
+  short walk (`office_agglomeration` on the log of jobs within ~2.5 parcels), so they concentrate downtown.
+  Their returns to scale fall slowly (S^0.93), so one firm can fill a tall building, and new office space is
+  not limited by the size of a typical firm. Commercial premises go to a shop or an office, whichever bids
+  more. They are not tied to the goods cycle.
+* **New business space** can only expect the workers the city can supply (job seekers, would-be newcomers and
+  2% of residents), so a small town does not build offices for thousands.
 * **Shops** capture local spending via the Huff gravity model with an outside "shop elsewhere" option. A worker
-  can serve at most `retail_output_per_worker` of sales a month; the rest is bought elsewhere.
+  can serve at most `retail_output_per_worker` of sales a month; the rest is bought elsewhere. A bigger city
+  makes more of what it buys (import substitution): the local share of spending rises from 55% toward 70%,
+  halfway there at 20 000 households (`local_spend_max`, `local_spend_scale`).
 * **Business rents:** landlords raise a tenant's rent while it earns a margin above 15% and cut it when the
   margin falls below 3%; empty premises are offered at falling rents. A tenant does not pay more than 1.3× what
   the premises would cost a typical firm (it would move), so a landlord captures the location's rent, not one
@@ -426,15 +439,15 @@ during an export slump (a town whose jobs are almost all in export industry, wit
   Real cities mostly prevent this with use zoning. In test runs, turning zoning on cut rebuilds by 2–10×.
 * **Stochastic and path-dependent.** Housing cycles emerge from construction lags, and terrain matters. Use many
   seeds.
-* **City size** is set by the outside demand for exports (`export_market_size`), much more than by congestion
-  or the map. Industry is the only export sector, and its market does not grow with the outside economy: the
-  export price falls to about 0.7 once industrial employment reaches about 17 000, and employment stops there.
-  Shops only serve residents, so the city stops at roughly 30 000–35 000 households (seed 1, Georgist,
-  150 years). A 192×192 map gives the same size. Making congestion 4× weaker adds about 8%. A 4× larger export
-  market roughly doubles the city (69 000 households after 150 years, until it runs out of serviced land on
-  the default map). Outside capital is never the limit: absentee investors have unlimited funds at a 6%
-  return. Real cities keep growing by adding export sectors (offices, services, tourism) and through growing
-  markets, which this model leaves out.
+* **City size** is set by the outside demand for the city's exports far more than by congestion. With a single
+  export good in a fixed market, the city stopped at roughly 30 000–40 000 households whatever the map size or
+  congestion. With offices, product variety and import substitution it grows to about 80 000–130 000
+  households after 200 years, until it fills the default map and builds up: towers of 20–30 floors downtown,
+  and in the high-tax presets most dwellings in buildings of 5+ floors. That makes the map edge (no suburbs or
+  neighbouring towns) the binding limit late in long runs. The variety and office parameters are the main
+  levers on city size, and they are set by eye with `taxsim longrun`, not estimated. Outside capital is never
+  the limit: absentee investors have unlimited funds at a 6% return. A bigger city is proportionally slower to
+  simulate.
 * **Not modelled:** monetary policy, credit cycles beyond simple mortgages, international trade beyond a single
   export good, local traffic congestion and the street network's actual shape (commutes are straight-line
   distance times a fixed detour factor, with a city-wide congestion factor, so roads add value by unlocking land
@@ -454,7 +467,8 @@ during an export slump (a town whose jobs are almost all in export industry, wit
 
 **Next:**
 * buy-to-let flats and a market for flats between households;
-* more export sectors (offices and tradable services) and a growing export market;
+* more export sectors (tourism, a university or hospital serving the region) and rival cities competing for
+  the same markets;
 * congestion-aware commuting and transit;
 * land value increment tax and land value capture of public investment;
 * revenue-neutral comparisons (automatically scale a regime to match a target revenue);

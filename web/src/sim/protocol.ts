@@ -102,6 +102,9 @@ export interface Metrics {
   top1_wealth_share: number;
   poverty_rate: number;
   absentee_land_share: number;
+  owner_occupier_share: number;
+  flat_purchases: number;
+  flat_sales: number;
   median_rent: number;
   rent_burden: number;
   housing_units: number;

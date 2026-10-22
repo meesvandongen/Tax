@@ -27,6 +27,7 @@ export function renderInspector(root: HTMLElement, d: any) {
     <span class="muted">(${Number(d.x).toFixed(0)}, ${Number(d.y).toFixed(0)})</span><button class="icon" data-close>×</button></div><table>`;
   if (d.floors) html += row('Floors', d.floors);
   if (d.units) html += row(use === 'Residential' ? 'Dwellings' : 'Job slots', `${d.occupied} / ${d.units} used`);
+  if (d.owned_flats > 0) html += row('Owner-occupied flats', `${d.owned_flats} / ${d.units}`, 'Flats owned by the households living in them; the owner below holds the rest');
   if (use === 'Residential' || use === 'Commercial' || use === 'Industrial') html += row('Asking rent', money(d.asking_rent) + ' / unit');
   if (d.floors) html += row('Condition', pct(d.condition), 'Falls when owners defer maintenance');
   html += row('Owner', owner);
@@ -60,7 +61,7 @@ export function renderInspector(root: HTMLElement, d: any) {
   if (d.residents?.length) {
     html += `<h4>Residents</h4><table class="residents"><tr><th>skill</th><th>job</th><th>income</th><th>rent</th><th>taxes</th><th>wealth</th></tr>`;
     for (const r of d.residents) {
-      html += `<tr><td>${r.skill.toFixed(2)}</td><td>${r.employed ? '✓' : '–'}</td><td>${money(r.income)}</td><td>${money(r.rent)}</td><td>${money(r.taxes)}</td><td>${money(r.wealth)}</td></tr>`;
+      html += `<tr><td>${r.skill.toFixed(2)}</td><td>${r.employed ? '✓' : '–'}</td><td>${money(r.income)}</td><td>${r.owns_flat ? 'owns' : money(r.rent)}</td><td>${money(r.taxes)}</td><td>${money(r.wealth)}</td></tr>`;
     }
     html += '</table>';
   }

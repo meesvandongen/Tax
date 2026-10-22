@@ -386,6 +386,20 @@ pub fn check(w: &World) -> Vec<String> {
     if dead_firms > 0 {
         v.push(format!("{dead_firms} firms owned by households that left"));
     }
+    // Each owned flat must be the home of exactly one owner living there.
+    let mut flats = vec![0u16; w.p.len()];
+    for h in w.hh.iter().filter(|h| h.alive && h.owns_home) {
+        if h.home == NONE || w.p.land_use[h.home as usize] != LandUse::Residential {
+            v.push("a flat owner without a residential home".into());
+            break;
+        }
+        flats[h.home as usize] += 1;
+    }
+    let bad_flats =
+        (0..w.p.len()).filter(|&i| flats[i] != w.p.owned_flats[i] || w.p.owned_flats[i] > w.p.occupied[i]).count();
+    if bad_flats > 0 {
+        v.push(format!("{bad_flats} parcels whose owned-flat count does not match their owners"));
+    }
     // Each firm's head count and skill total must match the households it
     // employs: output is computed from them.
     let mut staff = vec![(0u32, 0f64); w.firms.len()];

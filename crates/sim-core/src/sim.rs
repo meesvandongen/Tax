@@ -22,6 +22,7 @@ pub const PIPELINE: &[(&str, System)] = &[
     ("owner_costs", property::owner_costs),
     ("settle", households::settle),
     ("housing_market", housing::market),
+    ("tenure", housing::tenure),
     ("rent_adjust", housing::adjust_rents),
     ("commercial_rents", production::adjust_commercial_rents),
     ("assess", |w| land::assess(w, false)),

@@ -80,6 +80,7 @@ const CSV_COLUMNS: &[&str] = &[
     "revenue",
     "gov_cash",
     "absentee_land_share",
+    "owner_occupier_share",
     "emigrants",
     "wealthy_emigrants",
     "capital_flight",

@@ -76,6 +76,10 @@ pub struct Parcels {
     /// Residential units or job slots.
     pub units: Vec<u16>,
     pub occupied: Vec<u16>,
+    /// Dwellings owned by the households living in them (flats held on a
+    /// long lease or as a condominium unit). The parcel owner keeps the
+    /// freehold of the land, the common parts and the other dwellings.
+    pub owned_flats: Vec<u16>,
     /// Asking rent per unit / job-slot per month for new leases.
     pub asking_rent: Vec<f32>,
     /// 1 = new, 0 = derelict.
@@ -120,6 +124,7 @@ impl Parcels {
             floors: vec![0; n],
             units: vec![0; n],
             occupied: vec![0; n],
+            owned_flats: vec![0; n],
             asking_rent: vec![0.0; n],
             condition: vec![1.0; n],
             age_months: vec![0; n],
@@ -150,6 +155,15 @@ impl Parcels {
     pub fn vacant_units(&self, i: usize) -> u16 {
         self.units[i].saturating_sub(self.occupied[i])
     }
+    /// Share of the building the parcel owner holds (the rest are flats
+    /// owned by their occupants).
+    pub fn freehold_share(&self, i: usize) -> f64 {
+        if self.units[i] == 0 {
+            1.0
+        } else {
+            1.0 - self.owned_flats[i] as f64 / self.units[i] as f64
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -162,7 +176,12 @@ pub struct Household {
     pub cash: f64,
     pub debt: f64,
     pub home: u32,
-    /// Monthly rent on the current lease.
+    /// Owns the flat it lives in (see `Parcels::owned_flats`).
+    pub owns_home: bool,
+    /// Mortgage on that flat.
+    pub flat_mortgage: f64,
+    /// Monthly rent on the current lease. For a flat owner, the rent the
+    /// flat would let for (what owning it saves).
     pub rent: f32,
     pub job: u32,
     pub wage: f32,

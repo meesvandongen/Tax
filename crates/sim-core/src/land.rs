@@ -189,6 +189,8 @@ pub fn market(w: &mut World) {
                 .iter()
                 .max_by(|a, b| w.p.assessed_land[**a as usize].total_cmp(&w.p.assessed_land[**b as usize]))
             else {
+                // Owners of only a flat sell it and rent it back.
+                crate::housing::sell_flat(w, id);
                 continue;
             };
             let i = i as usize;

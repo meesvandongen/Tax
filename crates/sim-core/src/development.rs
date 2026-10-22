@@ -39,20 +39,31 @@ pub fn progress(w: &mut World) {
 }
 
 /// Clear a parcel for construction: tenants are paid their relocation
-/// allowance (households) or lease buy-out (firm owner) and leave.
-/// Returns the compensation, which the caller charges to the owner.
+/// allowance (households) or lease buy-out (firm owner), owner-occupiers are
+/// bought out of their flats, and all leave. Returns the compensation, which
+/// the caller charges to the owner.
 pub fn clear_site(w: &mut World, i: usize) -> f64 {
     let months = w.econ.relocation_months as f64;
     let mut paid = 0.0;
     if w.p.land_use[i] == LandUse::Residential && w.p.occupied[i] > 0 {
+        let buyout = if w.p.owned_flats[i] > 0 { econ::flat_buyout(w, i) } else { 0.0 };
         let tenants: Vec<u32> =
             w.hh.iter().enumerate().filter(|(_, h)| h.alive && h.home == i as u32).map(|(id, _)| id as u32).collect();
         for id in tenants {
             let h = &mut w.hh[id as usize];
-            let allowance = months * h.rent as f64;
-            h.cash += allowance;
-            h.income_transfer += allowance as f32;
-            paid += allowance;
+            if h.owns_home {
+                // The sale proceeds pay off the flat's mortgage first.
+                h.cash += buyout - h.flat_mortgage;
+                h.flat_mortgage = 0.0;
+                h.owns_home = false;
+                paid += buyout;
+                w.p.owned_flats[i] -= 1;
+            } else {
+                let allowance = months * h.rent as f64;
+                h.cash += allowance;
+                h.income_transfer += allowance as f32;
+                paid += allowance;
+            }
             evict(w, id);
         }
     }
@@ -126,11 +137,13 @@ pub enum Decision {
 
 pub fn decide(w: &World, i: usize, inv: &econ::Investor) -> Decision {
     let cur = econ::current_use_value(w, i, inv);
-    // A run-down building can be renovated rather than replaced.
+    // A run-down building can be renovated rather than replaced. Flat owners
+    // pay their share of the cost and get their share of the gain.
     let renovation = if w.p.land_use[i].is_private_use() && w.p.condition[i] < 0.6 {
         let cost = econ::renovation_cost(w, i);
-        let gain = econ::building_in_condition_value(w, i, inv, 1.0) - cur - cost;
-        (gain > 0.1 * cost).then_some((gain, cost))
+        let whole = econ::building_in_condition_value(w, i, inv, w.p.condition[i]);
+        let gain = w.p.freehold_share(i) * (econ::building_in_condition_value(w, i, inv, 1.0) - whole - cost);
+        (gain > 0.1 * cost * w.p.freehold_share(i)).then_some((gain, cost))
     } else {
         None
     };
@@ -181,22 +194,26 @@ pub fn run(w: &mut World) {
                 w.p.months_held_empty[i] = w.p.months_held_empty[i].saturating_add(1);
             }
             Decision::Renovate(cost) => {
+                let own = cost * w.p.freehold_share(i);
                 let ok = match owner {
                     Owner::Hh(id) => {
                         let h = &mut w.hh[id as usize];
-                        let ok = h.cash >= cost;
+                        let ok = h.cash >= own;
                         if ok {
-                            h.cash -= cost;
+                            h.cash -= own;
                         }
                         ok
                     }
                     Owner::Gov => false,
                     Owner::Absentee => {
-                        w.flows.absentee_income -= cost;
+                        w.flows.absentee_income -= own;
                         true
                     }
                 };
                 if ok {
+                    if w.p.owned_flats[i] > 0 {
+                        crate::property::charge_flat_owners(w, i, cost / w.p.units[i] as f64);
+                    }
                     w.p.condition[i] = 1.0;
                     w.p.months_vacant[i] = 0;
                     w.flows.construction_spend += cost;

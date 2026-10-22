@@ -253,6 +253,10 @@ fn roads_through_buildings_pay_full_compensation() {
         w.p.floors[i] = 1;
         w.p.units[i] = sim_core::econ::units_for(w, LandUse::Residential, 1);
         w.p.condition[i] = 1.0;
+        // (Foreclosed land is already the city's: it pays itself nothing.)
+        if w.p.owner[i] == Owner::Gov {
+            w.p.owner[i] = Owner::Absentee;
+        }
     }
     sim_core::land::assess(w, true);
     let best = roads::candidates(w, 1e12);
@@ -347,4 +351,29 @@ fn parcel_land_values_do_not_cycle() {
     worst.sort_by(|a, b| a.total_cmp(b));
     let p90 = worst[worst.len() * 9 / 10];
     assert!(p90 < 3.0, "land values cycle: 90th percentile parcel swings {p90:.1}x and back within 5 years");
+}
+
+/// Tenants buy the flats they live in, and a developer who clears their
+/// building must buy them out at market value plus the premium.
+#[test]
+fn flat_owners_are_bought_out_when_their_building_is_cleared() {
+    let mut sim = grown_city(120);
+    let w = &mut sim.world;
+    let owners = w.hh.iter().filter(|h| h.alive && h.owns_home).count();
+    assert!(owners > 0, "nobody bought a flat");
+    let flats: u32 = w.p.owned_flats.iter().map(|&k| k as u32).sum();
+    assert_eq!(flats as usize, owners);
+    let i = (0..w.p.len()).find(|&i| w.p.owned_flats[i] > 0).unwrap();
+    let ids: Vec<usize> =
+        (0..w.hh.len()).filter(|&id| w.hh[id].alive && w.hh[id].owns_home && w.hh[id].home == i as u32).collect();
+    let before: Vec<f64> = ids.iter().map(|&id| w.hh[id].cash - w.hh[id].flat_mortgage).collect();
+    let buyout = sim_core::econ::flat_buyout(w, i);
+    assert!(buyout > sim_core::econ::flat_value(w, i));
+    sim_core::development::clear_site(w, i);
+    assert_eq!(w.p.owned_flats[i], 0);
+    for (k, &id) in ids.iter().enumerate() {
+        let h = &w.hh[id];
+        assert!(!h.owns_home && h.home == sim_core::types::NONE);
+        assert!((h.cash - before[k] - buyout).abs() < 1.0, "owner not paid the buyout");
+    }
 }

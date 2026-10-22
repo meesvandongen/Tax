@@ -105,6 +105,7 @@ The mechanism tests check properties the model must have by construction:
 * public works buy land at the owner's valuation plus the purchase premium;
 * roads are built only while serviced land is short, and only projects whose unlocked land value exceeds their cost;
 * a road through a building buys it at full value plus the premium, and compensates its tenants;
+* tenants buy flats, and clearing a building buys its owner-occupiers out at market value plus the premium;
 * the road network stays connected;
 * long runs stay finite;
 * a city grown for 60 years passes every audit check;

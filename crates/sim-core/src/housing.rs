@@ -2,6 +2,7 @@
 //! vacancy, and searching households pick among a few sampled vacancies with
 //! a logit (Gumbel-noise) choice over money-metric utility.
 
+use crate::econ;
 use crate::fields::{commute_cost, residential_quality};
 use crate::types::*;
 use crate::world::World;
@@ -14,11 +15,11 @@ pub fn lettable(w: &World, i: usize) -> bool {
     w.p.land_use[i] == LandUse::Residential && w.p.condition[i] > LETTABLE_CONDITION
 }
 
-/// Rent the household actually pays this month: nothing if it owns the
-/// building it lives in.
+/// Rent the household actually pays this month: nothing if it owns its
+/// flat or the building it lives in.
 pub fn rent_paid(w: &World, id: u32) -> f32 {
     let h = &w.hh[id as usize];
-    if h.home == NONE || w.p.owner[h.home as usize] == Owner::Hh(id) {
+    if h.home == NONE || h.owns_home || w.p.owner[h.home as usize] == Owner::Hh(id) {
         0.0
     } else {
         h.rent
@@ -35,7 +36,7 @@ pub fn pay_rents(w: &mut World) {
         let home = h.home as usize;
         let rent = h.rent as f64;
         let owner = w.p.owner[home];
-        if owner == Owner::Hh(id as u32) {
+        if owner == Owner::Hh(id as u32) || h.owns_home {
             continue; // owner-occupier: no cash changes hands
         }
         if h.cash < rent {
@@ -47,13 +48,111 @@ pub fn pay_rents(w: &mut World) {
     }
 }
 
+/// The household leaves its home. A flat owner first sells the flat.
 pub fn evict(w: &mut World, id: u32) {
+    sell_flat(w, id);
     let h = &mut w.hh[id as usize];
     if h.home != NONE {
         let o = &mut w.p.occupied[h.home as usize];
         *o = o.saturating_sub(1);
         h.home = NONE;
         h.rent = 0.0;
+    }
+}
+
+/// A flat owner sells the flat back to the building's freeholder at market
+/// value and stays on as a tenant at the asking rent. (Selling to the next
+/// occupier is the same thing in two steps: they can buy it back from the
+/// freeholder, see [`tenure`].) The buyer pays the transfer tax; a household
+/// freeholder borrows against the building what it cannot pay in cash.
+pub fn sell_flat(w: &mut World, id: u32) {
+    let h = &w.hh[id as usize];
+    if !h.alive || !h.owns_home {
+        return;
+    }
+    let i = h.home as usize;
+    let freeholder = w.p.owner[i];
+    let price = if freeholder == Owner::Hh(id) { 0.0 } else { econ::flat_value(w, i) };
+    let transfer = if matches!(freeholder, Owner::Hh(b) if b != id) || freeholder == Owner::Absentee {
+        w.taxes.levy(|m| m.transfer(price))
+    } else {
+        0.0
+    };
+    w.gov.cash += transfer;
+    match freeholder {
+        // (Its own freehold: the flat merges back, and so does its debt.)
+        Owner::Hh(b) if b == id => w.p.mortgage[i] += w.hh[id as usize].flat_mortgage as f32,
+        Owner::Hh(b) => {
+            let o = &mut w.hh[b as usize];
+            let cash = o.cash.clamp(0.0, price + transfer);
+            o.cash -= cash;
+            o.taxes_paid += transfer as f32;
+            w.p.mortgage[i] += (price + transfer - cash) as f32;
+        }
+        Owner::Gov => w.gov.cash -= price,
+        Owner::Absentee => w.flows.absentee_income -= price + transfer,
+    }
+    let h = &mut w.hh[id as usize];
+    if freeholder != Owner::Hh(id) {
+        h.cash += price - h.flat_mortgage;
+    }
+    h.flat_mortgage = 0.0;
+    h.owns_home = false;
+    h.rent = w.p.asking_rent[i];
+    w.p.owned_flats[i] -= 1;
+    w.flows.flat_sales += 1;
+}
+
+/// Tenure choice. Once a year, at lease renewal, a tenant may buy the flat
+/// it rents: if owning it (no rent, no vacancy, no tax on the rent it saves)
+/// is worth more to the household than the freeholder's asking price plus
+/// transfer tax, and the household can pay the deposit and the mortgage.
+pub fn tenure(w: &mut World) {
+    let tick = w.tick;
+    let ltv = w.econ.loan_to_value as f64;
+    let payment_rate = w.econ.mortgage_rate as f64 / 12.0 + 0.003;
+    let reserve = 3.0 * w.econ.subsistence as f64;
+    let t_rate = w.taxes.transfer_cost(1.0);
+    for id in 0..w.hh.len() {
+        let h = &w.hh[id];
+        if !h.alive || h.home == NONE || h.owns_home || (id as u64 + tick) % 12 != 0 {
+            continue;
+        }
+        let i = h.home as usize;
+        let freeholder = w.p.owner[i];
+        if !lettable(w, i) || w.p.condition[i] < 0.5 || freeholder == Owner::Hh(id as u32) {
+            continue;
+        }
+        // Cheap screen first: most tenants cannot raise a deposit at all.
+        if h.cash < 0.5 * (1.0 - ltv) * w.flat_assessment(i) {
+            continue;
+        }
+        let units = w.p.units[i].max(1) as f64;
+        let ask = 1.03 * econ::building_in_condition_value(w, i, &w.investor_for(freeholder), w.p.condition[i]) / units;
+        let transfer = ask * t_rate;
+        let deposit = ask * (1.0 - ltv);
+        let h = &w.hh[id];
+        if ask <= 0.0 || h.cash < deposit + transfer + reserve || ask * ltv * payment_rate > 0.35 * budget(w, h) as f64
+        {
+            continue;
+        }
+        if econ::owner_occupier_value(w, i, &w.household_investor(id as u32)) < ask + transfer {
+            continue;
+        }
+        let transfer = w.taxes.levy(|m| m.transfer(ask));
+        w.gov.cash += transfer;
+        match freeholder {
+            Owner::Hh(b) => w.hh[b as usize].cash += ask,
+            Owner::Gov => w.gov.cash += ask,
+            Owner::Absentee => w.flows.absentee_income += ask,
+        }
+        let h = &mut w.hh[id];
+        h.cash -= deposit + transfer;
+        h.taxes_paid += transfer as f32;
+        h.flat_mortgage = ask * ltv;
+        h.owns_home = true;
+        w.p.owned_flats[i] += 1;
+        w.flows.flat_purchases += 1;
     }
 }
 
@@ -140,7 +239,9 @@ pub fn market(w: &mut World) {
         }
         let burden = if h.home != NONE { rent_paid(w, id as u32) / budget(w, h).max(1.0) } else { 1.0 };
         let slum = h.home != NONE && !lettable(w, h.home as usize);
-        if h.home == NONE || slum || burden > 0.55 || w.rng.chance(e.relocation_rate as f64) {
+        // Owners move less often: selling and buying again costs fees and taxes.
+        let relocate = e.relocation_rate as f64 * if h.owns_home { 0.3 } else { 1.0 };
+        if h.home == NONE || slum || burden > 0.55 || w.rng.chance(relocate) {
             searchers.push(id as u32);
         }
     }

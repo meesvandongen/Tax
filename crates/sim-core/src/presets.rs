@@ -45,12 +45,14 @@ pub fn preset(name: &str) -> Option<Policy> {
             spending: spend(0.4, 0.3, 0.08, 0.0, 0.22),
             zoning: false,
             height_limit: 0,
+            collective_sale_threshold: 0.8,
         },
         "georgist" => Policy {
             taxes: vec![TaxSpec::LandValue { rate: 0.06 }],
             spending: spend(0.32, 0.3, 0.08, 0.25, 0.05),
             zoning: false,
             height_limit: 0,
+            collective_sale_threshold: 0.8,
         },
         "nordic" => Policy {
             taxes: vec![
@@ -65,6 +67,7 @@ pub fn preset(name: &str) -> Option<Policy> {
             spending: spend(0.5, 0.2, 0.08, 0.0, 0.22),
             zoning: false,
             height_limit: 0,
+            collective_sale_threshold: 0.8,
         },
         "wealth_tax" => {
             let mut p = preset("status_quo")?;
@@ -76,6 +79,7 @@ pub fn preset(name: &str) -> Option<Policy> {
             spending: spend(0.32, 0.3, 0.08, 0.25, 0.05),
             zoning: false,
             height_limit: 0,
+            collective_sale_threshold: 0.8,
         },
         "flat_tax" => Policy {
             taxes: vec![
@@ -85,18 +89,21 @@ pub fn preset(name: &str) -> Option<Policy> {
             spending: spend(0.4, 0.35, 0.05, 0.0, 0.2),
             zoning: false,
             height_limit: 0,
+            collective_sale_threshold: 0.8,
         },
         "laissez_faire" => Policy {
             taxes: vec![TaxSpec::Property { land_rate: 0.004, building_rate: 0.004 }],
             spending: spend(0.15, 0.8, 0.05, 0.0, 0.0),
             zoning: false,
             height_limit: 0,
+            collective_sale_threshold: 0.8,
         },
         "poll_tax" => Policy {
             taxes: vec![TaxSpec::Head { amount: 450.0 }],
             spending: spend(0.4, 0.35, 0.05, 0.0, 0.2),
             zoning: false,
             height_limit: 0,
+            collective_sale_threshold: 0.8,
         },
         "green" => Policy {
             taxes: vec![
@@ -107,6 +114,7 @@ pub fn preset(name: &str) -> Option<Policy> {
             spending: spend(0.32, 0.25, 0.2, 0.15, 0.08),
             zoning: false,
             height_limit: 0,
+            collective_sale_threshold: 0.8,
         },
         _ => return None,
     };

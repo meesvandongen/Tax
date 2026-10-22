@@ -43,10 +43,15 @@ pub fn progress(w: &mut World) {
 /// bought out of their flats, and all leave. Returns the compensation, which
 /// the caller charges to the owner.
 pub fn clear_site(w: &mut World, i: usize) -> f64 {
+    let buyout = if w.p.owned_flats[i] > 0 { econ::flat_buyout(w, i) } else { 0.0 };
+    clear_site_paying(w, i, buyout)
+}
+
+/// [`clear_site`], paying owner-occupiers `buyout` per flat.
+fn clear_site_paying(w: &mut World, i: usize, buyout: f64) -> f64 {
     let months = w.econ.relocation_months as f64;
     let mut paid = 0.0;
     if w.p.land_use[i] == LandUse::Residential && w.p.occupied[i] > 0 {
-        let buyout = if w.p.owned_flats[i] > 0 { econ::flat_buyout(w, i) } else { 0.0 };
         let tenants: Vec<u32> =
             w.hh.iter().enumerate().filter(|(_, h)| h.alive && h.home == i as u32).map(|(id, _)| id as u32).collect();
         for id in tenants {
@@ -85,7 +90,7 @@ pub fn clear_site(w: &mut World, i: usize) -> f64 {
 }
 
 pub fn start_construction(w: &mut World, i: usize, d: &DevOption) {
-    let compensation = clear_site(w, i);
+    let compensation = if d.flat_price > 0.0 { clear_site_paying(w, i, d.flat_price) } else { clear_site(w, i) };
     match w.p.owner[i] {
         Owner::Hh(id) => w.hh[id as usize].cash -= compensation,
         Owner::Gov => w.gov.cash -= compensation,
@@ -133,6 +138,33 @@ pub enum Decision {
     Build(DevOption),
     /// Restore the existing building to new condition at this cost.
     Renovate(f64),
+    /// Add this many floors (and renovate) at this cost.
+    Extend(u8, f64),
+    /// Redevelopment would pay, but too few flat owners accept the offer.
+    Blocked,
+}
+
+/// The lowest price per flat at which enough of a building's dwellings
+/// accept a developer's offer (at least the standard buyout). The parcel
+/// owner's own dwellings say yes; an owner-occupier says yes once the offer
+/// beats what living there is worth to them plus the cost of moving. Every
+/// owner, holdouts included, is then paid that price.
+pub fn collective_sale_price(w: &World, i: usize) -> f64 {
+    let floor = econ::flat_buyout(w, i);
+    let moving = w.econ.relocation_months as f64 * w.p.asking_rent[i] as f64;
+    let mut asks: Vec<f64> =
+        w.hh.iter()
+            .enumerate()
+            .filter(|(_, h)| h.alive && h.owns_home && h.home == i as u32)
+            .map(|(id, _)| econ::owner_occupier_value(w, i, &w.household_investor(id as u32)) + moving)
+            .collect();
+    asks.sort_by(|a, b| a.total_cmp(b));
+    let units = w.p.units[i] as f64;
+    let needed = (w.cfg.policy.collective_sale_threshold as f64 * units).ceil() - (units - asks.len() as f64);
+    if needed <= 0.0 || asks.is_empty() {
+        return floor;
+    }
+    floor.max(asks[(needed as usize).min(asks.len()) - 1])
 }
 
 pub fn decide(w: &World, i: usize, inv: &econ::Investor) -> Decision {
@@ -142,21 +174,48 @@ pub fn decide(w: &World, i: usize, inv: &econ::Investor) -> Decision {
     let renovation = if w.p.land_use[i].is_private_use() && w.p.condition[i] < 0.6 {
         let cost = econ::renovation_cost(w, i);
         let whole = econ::building_in_condition_value(w, i, inv, w.p.condition[i]);
-        let gain = w.p.freehold_share(i) * (econ::building_in_condition_value(w, i, inv, 1.0) - whole - cost);
+        let gain = w.p.freehold_share(i) * (econ::renovated_value(w, i, inv) - whole - cost);
         (gain > 0.1 * cost * w.p.freehold_share(i)).then_some((gain, cost))
     } else {
         None
     };
-    let Some(best) = econ::best_development(w, i, inv) else {
-        return renovation.map_or(Decision::Keep, |(_, cost)| Decision::Renovate(cost));
+    // Or floors can be added on top. The parcel owner pays and owns the new
+    // dwellings (flat owners keep theirs, renovated).
+    let extension = econ::best_extension(w, i, inv).and_then(|(add, cost, value)| {
+        let units = econ::units_for(w, w.p.land_use[i], w.p.floors[i] + add) as f64;
+        let share = 1.0 - w.p.owned_flats[i] as f64 / units;
+        let gain = share * value - cur - cost;
+        (gain > 0.1 * cost).then_some((gain, add, cost))
+    });
+    // The better of the two ways to improve the building in place.
+    let in_place = match (renovation, extension) {
+        (Some((rg, rc)), Some((eg, add, ec))) => {
+            Some(if eg > rg { (eg, Decision::Extend(add, ec)) } else { (rg, Decision::Renovate(rc)) })
+        }
+        (Some((rg, rc)), None) => Some((rg, Decision::Renovate(rc))),
+        (None, Some((eg, add, ec))) => Some((eg, Decision::Extend(add, ec))),
+        (None, None) => None,
     };
-    if let Some((gain, cost)) = renovation {
+    let Some(best) = econ::best_development(w, i, inv) else {
+        return in_place.map_or(Decision::Keep, |(_, d)| d);
+    };
+    if let Some((gain, d)) = in_place {
         if gain >= best.residual - cur {
-            return Decision::Renovate(cost);
+            return d;
         }
     }
     if best.residual <= 0.0 || best.residual <= cur * 1.05 {
         return Decision::Keep;
+    }
+    // Owner-occupiers must be bought out at a price enough of them accept.
+    let mut best = best;
+    if w.p.land_use[i] == LandUse::Residential && w.p.owned_flats[i] > 0 {
+        let price = collective_sale_price(w, i);
+        best.residual -= w.p.owned_flats[i] as f64 * (price - econ::flat_buyout(w, i));
+        best.flat_price = price;
+        if best.residual <= cur * 1.05 {
+            return Decision::Blocked;
+        }
     }
     // Waiting: the project is worth (1+g) more next year, costs are fixed,
     // meanwhile the parcel earns its interim income (net of holding taxes).
@@ -189,18 +248,62 @@ pub fn run(w: &mut World) {
                     w.p.months_held_empty[i] = w.p.months_held_empty[i].saturating_add(1);
                 }
             }
+            Decision::Blocked => {
+                w.flows.collective_sales_blocked += 1;
+            }
+            Decision::Extend(add, cost) => {
+                // Financing as for a new building: households need the deposit.
+                let ok = match owner {
+                    Owner::Hh(id) => {
+                        let ltv = e.loan_to_value as f64;
+                        let h = &mut w.hh[id as usize];
+                        if h.cash >= cost * (1.0 - ltv) {
+                            h.cash -= cost * (1.0 - ltv);
+                            w.p.mortgage[i] += (cost * ltv) as f32;
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    Owner::Gov => false,
+                    Owner::Absentee => {
+                        w.flows.absentee_income -= cost;
+                        true
+                    }
+                };
+                if !ok {
+                    crate::land::sell_to_developer(w, i);
+                    continue;
+                }
+                {
+                    let u = w.p.land_use[i];
+                    w.p.floors[i] += add;
+                    w.p.units[i] = econ::units_for(w, u, w.p.floors[i]);
+                    w.p.condition[i] = 1.0;
+                    w.p.age_months[i] /= 2;
+                    w.p.months_vacant[i] = 0;
+                    w.flows.construction_spend += cost;
+                    w.flows.extensions += 1;
+                    w.flows.floors_built += add as u32;
+                    w.push_event(Event::BuildDone { cell: i as u32 });
+                }
+            }
             Decision::Wait => {
                 // Profitable to build, but more profitable to hold: speculation.
                 w.p.months_held_empty[i] = w.p.months_held_empty[i].saturating_add(1);
             }
             Decision::Renovate(cost) => {
                 let own = cost * w.p.freehold_share(i);
+                // Financed like construction: households pay the deposit
+                // and borrow the rest against the building.
                 let ok = match owner {
                     Owner::Hh(id) => {
+                        let ltv = e.loan_to_value as f64;
                         let h = &mut w.hh[id as usize];
-                        let ok = h.cash >= own;
+                        let ok = h.cash >= own * (1.0 - ltv);
                         if ok {
-                            h.cash -= own;
+                            h.cash -= own * (1.0 - ltv);
+                            w.p.mortgage[i] += (own * ltv) as f32;
                         }
                         ok
                     }
@@ -210,11 +313,17 @@ pub fn run(w: &mut World) {
                         true
                     }
                 };
-                if ok {
+                if !ok {
+                    // Can't finance it: sell to someone who can.
+                    crate::land::sell_to_developer(w, i);
+                    continue;
+                }
+                {
                     if w.p.owned_flats[i] > 0 {
                         crate::property::charge_flat_owners(w, i, cost / w.p.units[i] as f64);
                     }
                     w.p.condition[i] = 1.0;
+                    w.p.age_months[i] /= 2;
                     w.p.months_vacant[i] = 0;
                     w.flows.construction_spend += cost;
                     w.flows.renovations += 1;

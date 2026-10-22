@@ -160,7 +160,7 @@ pub fn report(w: &World) -> String {
     );
 
     // ---- firms and jobs
-    for sector in [Sector::Retail, Sector::Industry, Sector::Public] {
+    for sector in [Sector::Retail, Sector::Industry, Sector::Office, Sector::Public] {
         let fs: Vec<&Firm> = w.firms.iter().filter(|f| f.alive && f.sector == sector).collect();
         let slots: u64 = fs.iter().map(|f| w.p.units[f.parcel as usize] as u64).sum();
         let workers: u64 = fs.iter().map(|f| f.workers as u64).sum();
@@ -442,4 +442,74 @@ pub fn check(w: &World) -> Vec<String> {
         }
     }
     v
+}
+
+/// Indicators for judging long runs (`taxsim longrun`). Money is in real
+/// terms, and amounts are per household or relative to output where that
+/// makes cities of different sizes comparable. The flag says whether the
+/// indicator should level off once the city has grown (a long-run drift in
+/// it is suspicious).
+/// (label, whether it should level off, value)
+pub type Diagnostic = (&'static str, bool, f64);
+
+pub fn diagnostics(w: &World) -> Vec<Diagnostic> {
+    let Some(m) = w.history.last() else { return Vec::new() };
+    let ix = w.index as f64;
+    let n = m.households.max(1) as f64;
+    let alive: Vec<&Household> = w.hh.iter().filter(|h| h.alive).collect();
+    let mut wealth: Vec<f64> = alive.iter().map(|h| h.wealth / ix).collect();
+    wealth.sort_by(|a, b| a.total_cmp(b));
+    let median_wealth = wealth.get(wealth.len() / 2).copied().unwrap_or(0.0);
+    let top_fortune = wealth.last().copied().unwrap_or(0.0);
+    let total_wealth: f64 = wealth.iter().sum();
+    let gdp_year = 12.0 * (m.gdp / ix).max(1.0);
+    let firm_cash: f64 = w.firms.iter().filter(|f| f.alive).map(|f| f.cash).sum::<f64>() / ix;
+    let res = use_stats(w, LandUse::Residential);
+    let tall_units: u64 = (0..w.p.len())
+        .filter(|&i| w.p.land_use[i] == LandUse::Residential && w.p.floors[i] >= 5)
+        .map(|i| w.p.units[i] as u64)
+        .sum();
+    let buildings = (0..w.p.len()).filter(|&i| w.p.land_use[i].is_building()).count().max(1) as f64;
+    let generation = alive.iter().map(|h| h.generation).max().unwrap_or(0);
+    let jobs_in = |sector: Sector| -> f64 {
+        w.firms.iter().filter(|f| f.alive && f.sector == sector).map(|f| f.workers as f64).sum()
+    };
+    let all_jobs = (jobs_in(Sector::Retail) + jobs_in(Sector::Industry) + jobs_in(Sector::Office)).max(1.0);
+    let com = use_stats(w, LandUse::Commercial);
+    let last_year = |f: fn(&crate::metrics::Metrics) -> f64| w.history.iter().rev().take(12).map(f).sum::<f64>();
+    vec![
+        ("households", false, n),
+        ("unemployment %", true, 100.0 * m.unemployment as f64),
+        ("unhoused %", true, 100.0 * m.unhoused as f64 / n),
+        ("housing vacancy %", true, 100.0 * m.housing_vacancy as f64),
+        ("mean wage", true, m.mean_wage as f64 / ix),
+        ("median rent", true, m.median_rent as f64 / ix),
+        ("rent burden %", true, 100.0 * m.rent_burden as f64),
+        ("GDP / household / mo", true, m.gdp / ix / n),
+        ("land value / household k", true, m.land_value_total / ix / n / 1e3),
+        ("avg floors", false, m.avg_floors as f64),
+        ("max floors", false, m.max_floors as f64),
+        ("dwellings in 5+ floors %", false, pct(tall_units as f64, res.units as f64)),
+        ("owner-occupiers %", true, 100.0 * m.owner_occupier_share as f64),
+        ("absentee land %", true, 100.0 * m.absentee_land_share as f64),
+        ("median wealth k", true, median_wealth / 1e3),
+        ("top 1% wealth %", true, 100.0 * m.top1_wealth_share as f64),
+        ("largest fortune M", true, top_fortune / 1e6),
+        ("hh wealth / GDP (years)", true, total_wealth / gdp_year),
+        ("firm cash / GDP (years)", true, firm_cash / gdp_year),
+        ("gov cash / revenue (years)", true, w.gov.cash / (12.0 * w.gov.revenue_ema.max(1.0))),
+        ("revenue % GDP", true, pct(m.revenue, m.gdp)),
+        ("export price", true, w.export_price as f64),
+        ("office price", true, w.office_price as f64),
+        ("office jobs % of private", true, pct(jobs_in(Sector::Office), all_jobs)),
+        ("shop jobs % of private", true, pct(jobs_in(Sector::Retail), all_jobs)),
+        ("commercial avg floors", false, com.floors as f64 / com.cells.max(1) as f64),
+        ("new buildings / yr", false, last_year(|m| m.buildings_started as f64)),
+        ("extensions / yr", false, last_year(|m| m.extensions as f64)),
+        ("blocked collective sales / yr", false, last_year(|m| m.collective_sales_blocked as f64)),
+        ("heirs settling here / yr", false, last_year(|m| m.heirs_settled as f64)),
+        ("derelict % of buildings", true, pct(m.derelict as f64, buildings)),
+        ("generations", false, generation as f64),
+        ("urban cells", false, m.urban_cells as f64),
+    ]
 }

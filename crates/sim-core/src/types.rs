@@ -197,6 +197,8 @@ pub struct Household {
     pub consumption: f32,
     /// Net worth estimate (cash + property + firm equity − debt).
     pub wealth: f64,
+    /// The firm-equity part of `wealth`.
+    pub business: f64,
     pub utility: f32,
     /// Harberger: multiplier applied to own valuation when self-assessing.
     pub declare_markup: f32,
@@ -222,6 +224,9 @@ pub enum Sector {
     Industry = 1,
     /// Government services (schools, clinics); paid from the budget.
     Public = 2,
+    /// Tradable services (offices): sold to the outside world, in
+    /// commercial buildings, gaining most from clustering.
+    Office = 3,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -71,6 +71,7 @@ export interface Policy {
   spending: SpendingPolicy;
   zoning: boolean;
   height_limit: number;
+  collective_sale_threshold: number;
 }
 
 export interface Preset {

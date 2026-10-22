@@ -124,11 +124,19 @@ fn exogenous(w: &mut World) {
     w.cycle = (1.0 + CYCLE_PERSISTENCE * (w.cycle - 1.0) + shock).clamp(0.7, 1.3);
     let e = &w.cfg.econ;
     if let Some(m) = w.history.last() {
-        let real = m.exports / w.index as f64 / w.export_price.max(0.1) as f64;
-        w.export_volume = if w.export_volume <= 0.0 { real } else { 0.97 * w.export_volume + 0.03 * real };
+        let goods = (m.exports - m.service_exports) / w.index as f64 / w.export_price.max(0.1) as f64;
+        w.export_volume = if w.export_volume <= 0.0 { goods } else { 0.97 * w.export_volume + 0.03 * goods };
+        let services = m.service_exports / w.index as f64 / w.office_price.max(0.1) as f64;
+        w.office_volume = if w.office_volume <= 0.0 { services } else { 0.97 * w.office_volume + 0.03 * services };
     }
-    let rel = (w.export_volume / e.export_market_size.max(1.0) as f64).max(1.0);
-    w.export_price = rel.powf(-1.0 / e.export_demand_elasticity.max(0.5) as f64) as f32;
+    let price = |w: &World, sector: types::Sector, volume: f64, market: f32| {
+        let firms = w.firms.iter().filter(|f| f.alive && f.sector == sector).count() as f64;
+        let varieties = (firms / e.export_variety_firms.max(1.0) as f64).max(1.0).powf(e.export_variety as f64);
+        let rel = (volume / (market as f64 * varieties).max(1.0)).max(1.0);
+        rel.powf(-1.0 / e.export_demand_elasticity.max(0.5) as f64) as f32
+    };
+    w.export_price = price(w, types::Sector::Industry, w.export_volume, e.export_market_size);
+    w.office_price = price(w, types::Sector::Office, w.office_volume, e.office_market_size);
 }
 
 /// Price and rent indices with smoothed growth (feeds expectations).

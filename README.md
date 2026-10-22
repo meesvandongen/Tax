@@ -72,6 +72,17 @@ runaway public money, and bookkeeping invariants. It exits non-zero if any check
 cargo run --release -p sim-cli -- audit --preset georgist --years 500 --every 50
 ```
 
+To judge whether long runs stay sensible, `longrun` runs presets × seeds for centuries in parallel and prints how
+some 35 diagnostics evolve (mean over seeds): money in real terms, per household or relative to output, so cities
+of different sizes compare. It covers wages, rents and rent burden, land values, building heights,
+redevelopment, extensions, blocked collective sales, owner-occupation, wealth concentration and the largest
+fortune, dereliction, unemployment, the export price and public finances. It then lists the audit failures and
+the indicators that should have levelled off but are still drifting late in the run:
+
+```sh
+cargo run --release -p sim-cli -- longrun --presets status_quo,georgist --years 300 --seeds 2 --every 50
+```
+
 ## Repository layout
 
 ```
@@ -106,6 +117,8 @@ The mechanism tests check properties the model must have by construction:
 * roads are built only while serviced land is short, and only projects whose unlocked land value exceeds their cost;
 * a road through a building buys it at full value plus the premium, and compensates its tenants;
 * tenants buy flats, and clearing a building buys its owner-occupiers out at market value plus the premium;
+* a collective sale pays the price enough owners accept (every owner's ask under unanimity);
+* floors are added at most two at a time, below the cap, at a premium over building them new;
 * the road network stays connected;
 * long runs stay finite;
 * a city grown for 60 years passes every audit check;

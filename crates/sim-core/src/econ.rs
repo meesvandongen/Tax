@@ -60,6 +60,9 @@ pub struct DevOption {
     pub value: f64,
     /// Residual: value − construction − demolition.
     pub residual: f64,
+    /// What each owner-occupier is paid for their flat when the site is
+    /// cleared (0: the standard buyout, [`flat_buyout`]).
+    pub flat_price: f64,
 }
 
 pub fn units_for(w: &World, u: LandUse, floors: u8) -> u16 {
@@ -85,6 +88,22 @@ pub fn construction_cost(w: &World, i: usize, u: LandUse, floors: u8) -> f64 {
     };
     let slope = 1.0 + (w.terrain.slope[i] as f64 / 4.0);
     e.cost_per_floor as f64 * (floors as f64).powf(1.0 + e.height_premium as f64) * use_factor * slope
+}
+
+/// Years after which a building's upkeep has doubled: systems wear out and
+/// the layout dates, so old buildings cost more to keep up and are
+/// eventually worth replacing. Renovation halves the effective age.
+pub const OBSOLESCENCE_YEARS: f64 = 60.0;
+
+/// Upkeep multiplier for a building of this age.
+pub fn ageing(age_months: u32) -> f64 {
+    1.0 + age_months as f64 / 12.0 / OBSOLESCENCE_YEARS
+}
+
+/// Monthly cost of keeping the current building in shape.
+pub fn upkeep(w: &World, i: usize) -> f64 {
+    let p = &w.p;
+    w.econ.maintenance_rate as f64 * construction_cost(w, i, p.land_use[i], p.floors[i]) * ageing(p.age_months[i])
 }
 
 /// Depreciated replacement cost of the current building.
@@ -122,16 +141,40 @@ fn comparable_rent(bid: f32, observed: f32, evidence: f32) -> f32 {
 /// they add capacity (they share local spending with competitors, Huff
 /// model); factories' average product falls with scale.
 pub fn firm_bid_rent(w: &World, i: usize, u: LandUse, slots: u16) -> f32 {
+    match u {
+        // Commercial space goes to shops or offices, whichever bids more.
+        LandUse::Commercial => {
+            sector_bid_rent(w, i, Sector::Retail, slots).max(sector_bid_rent(w, i, Sector::Office, slots))
+        }
+        LandUse::Industrial => sector_bid_rent(w, i, Sector::Industry, slots),
+        _ => 0.0,
+    }
+}
+
+/// Whether offices outbid shops for commercial premises of this size here.
+pub fn offices_lead(w: &World, i: usize, slots: u16) -> bool {
+    sector_bid_rent(w, i, Sector::Office, slots) > sector_bid_rent(w, i, Sector::Retail, slots)
+}
+
+/// [`firm_bid_rent`] of a typical firm of one sector.
+pub fn sector_bid_rent(w: &World, i: usize, sector: Sector, slots: u16) -> f32 {
     let e = &w.econ;
     let wage = w.market_wage_rate() * (1.0 + w.taxes.payroll_rate() as f32);
     let k = slots.max(1) as f32;
-    let revenue = match u {
-        LandUse::Commercial => {
+    let revenue = match sector {
+        Sector::Office => {
+            if e.office_output_per_worker <= 0.0 {
+                return 0.0;
+            }
+            let a = e.office_output_per_worker * (1.0 + e.office_agglomeration * (1.0 + w.f.office_access[i]).ln());
+            a * k.powf(e.office_labour_elasticity - 1.0)
+        }
+        Sector::Retail => {
             let s = w.f.retail_supply[i] + crate::fields::OUTSIDE_SHOP_CAPACITY;
             let share = w.f.retail_draw[i] * s / (s + crate::fields::SHOP_REACH_SHARE * k);
             0.92 * share.min(e.retail_output_per_worker)
         }
-        LandUse::Industrial => {
+        Sector::Industry => {
             let a = e.industry_output_per_worker
                 * e.industry_price
                 * cycle_outlook(w)
@@ -165,8 +208,9 @@ fn local_occ(w: &World, i: usize, u: LandUse) -> (f32, f32, f32) {
     }
 }
 
-/// Expected occupancy if `new_units` are added here: developers anticipate
-/// that flooding a neighbourhood with space lowers occupancy.
+/// Expected occupancy, once let, of a building with `new_units` added here.
+/// New space competes with what is already being built nearby; how long the
+/// new units themselves take to let is [`lease_up_loss`].
 pub fn expected_occupancy(w: &World, i: usize, u: LandUse, new_units: u16) -> f64 {
     let (occ, local_units, pipeline) = local_occ(w, i, u);
     // Business space is let whenever the bid-rent is positive (already
@@ -181,14 +225,37 @@ pub fn expected_occupancy(w: &World, i: usize, u: LandUse, new_units: u16) -> f6
         occ
     } else {
         let labour = 0.92 * (0.35 + 0.65 * w.labour_slack.min(1.0));
+        // (Offices let floor by floor, or one firm grows into the building:
+        // their returns to scale fall slowly.)
+        let office = u == LandUse::Commercial && offices_lead(w, i, new_units.max(1));
         let typical = if u == LandUse::Commercial { w.firm_size[0] } else { w.firm_size[1] };
-        let fill = if new_units > 0 { (typical / new_units as f32).min(1.0) } else { 1.0 };
+        let fill = if new_units > 0 && !office { (typical / new_units as f32).min(1.0) } else { 1.0 };
+        // New premises cannot be staffed with more workers than the city
+        // can supply (job seekers, would-be newcomers, a share of residents).
+        let staffable = if new_units > 0 { (w.labour_available / new_units as f32).min(1.0) } else { 1.0 };
+        let fill = fill.min(staffable);
         labour.min(occ).min(w.biz_occupancy + 0.05).min(fill)
     };
     // New space competes with what is already being built nearby.
-    let absorption = 0.6 * (new_units as f32 + pipeline) / (local_units + 25.0);
+    let absorption = 0.6 * pipeline / (local_units + 25.0);
     let demand_boost = if u == LandUse::Residential { w.housing_pressure() } else { 0.0 };
     ((occ + demand_boost) - absorption).clamp(0.02, 0.97) as f64
+}
+
+/// Rent lost while `new_units` of new space here are let. A new building
+/// competes in the whole city's market, not only its block: space fills at a
+/// pace that grows with the neighbourhood and the city (movers and
+/// newcomers), so a tall building takes months, not forever, to let.
+/// (Treating the first tenants' scarcity as permanent vacancy made every
+/// tall building look a third empty forever.)
+pub fn lease_up_loss(w: &World, i: usize, u: LandUse, new_units: u16, occ: f64) -> f64 {
+    if new_units == 0 {
+        return 0.0;
+    }
+    let (_, local_units, _) = local_occ(w, i, u);
+    let per_month = 4.0 + 0.03 * local_units as f64 + 0.0005 * w.n_alive_hh as f64;
+    let months = new_units as f64 / per_month;
+    0.5 * months * new_units as f64 * occ * market_rent(w, i, u, new_units) as f64
 }
 
 /// Whether zoning / height rules permit this use here.
@@ -244,6 +311,18 @@ pub fn capitalize_at_land(
     ((12.0 * noi_month * (1.0 - inv.t_inc) - fixed_tax) / denom).max(0.0)
 }
 
+/// Share of a new building's rent that a building in `condition` (0 =
+/// ruin, 1 = new) can command. Steep near ruin: a slum dwelling lets for a
+/// fraction of the rent of a sound one, so maintenance pays most where a
+/// building is most run down, and conditions settle instead of collapsing.
+pub fn rent_quality(condition: f32) -> f64 {
+    (condition.clamp(0.0, 1.0) as f64).sqrt()
+}
+
+fn gross_rent(w: &World, i: usize, u: LandUse, units: u16, occ: f64) -> f64 {
+    units as f64 * occ * market_rent(w, i, u, units) as f64
+}
+
 /// Net operating income per month before property taxes and income tax.
 pub fn noi(w: &World, i: usize, u: LandUse, units: u16, occ: f64, bldg_cost: f64) -> f64 {
     let rent = market_rent(w, i, u, units) as f64;
@@ -280,6 +359,16 @@ pub fn current_use_value(w: &World, i: usize, inv: &Investor) -> f64 {
 /// Value of the whole existing building (freehold and flats) as an income
 /// property if it were in `condition` (0 = derelict, 1 = new).
 pub fn building_in_condition_value(w: &World, i: usize, inv: &Investor, condition: f32) -> f64 {
+    building_value_aged(w, i, inv, condition, w.p.age_months[i])
+}
+
+/// Value of the whole building just after a renovation: new condition, and
+/// half its effective age (see [`OBSOLESCENCE_YEARS`]).
+pub fn renovated_value(w: &World, i: usize, inv: &Investor) -> f64 {
+    building_value_aged(w, i, inv, 1.0, w.p.age_months[i] / 2)
+}
+
+fn building_value_aged(w: &World, i: usize, inv: &Investor, condition: f32, age_months: u32) -> f64 {
     let p = &w.p;
     let u = p.land_use[i];
     let bldg = construction_cost(w, i, u, p.floors[i]) * (0.3 + 0.7 * condition as f64);
@@ -294,16 +383,21 @@ pub fn building_in_condition_value(w: &World, i: usize, inv: &Investor, conditio
     } else {
         (p.occupied[i] as f64 / units as f64).max(expected_occupancy(w, i, u, 0) * 0.8)
     };
-    // Rent actually achievable is capped by building condition.
-    let quality = 0.6 + 0.4 * condition as f64;
-    let n = noi(w, i, u, units, occ, bldg) * quality;
+    // Rent actually achievable falls with the building's condition, and an
+    // old building costs more to keep up.
+    let ageing_cost =
+        w.econ.maintenance_rate as f64 * construction_cost(w, i, u, p.floors[i]) * (ageing(age_months) - 1.0);
+    let n = noi(w, i, u, units, occ, bldg) + (rent_quality(condition) - 1.0) * gross_rent(w, i, u, units, occ)
+        - ageing_cost;
     let market = capitalize(w, inv, i, n, bldg, 1.0 - occ);
     // Let business premises are worth at least the lease the sitting tenant
     // pays, as an appraiser would value them, not only what a newcomer might
     // bid in today's labour market.
     let leased = leased_slots(w, i);
     if leased > 0 {
-        let n = p.asking_rent[i] as f64 * leased as f64 - w.econ.maintenance_rate as f64 * bldg;
+        // (A tenant in a crumbling building renegotiates its lease down.)
+        let n =
+            p.asking_rent[i] as f64 * leased as f64 * rent_quality(condition) - w.econ.maintenance_rate as f64 * bldg;
         let idle = 1.0 - leased as f64 / units.max(1) as f64;
         market.max(capitalize(w, inv, i, n, bldg, idle))
     } else {
@@ -373,16 +467,59 @@ pub fn flat_buyout(w: &World, i: usize) -> f64 {
     (1.0 + FLAT_BUYOUT_PREMIUM) * flat_value(w, i)
 }
 
+/// Extra return a household wants for tying its savings up in its own
+/// home: one undiversified, illiquid asset in a place it may have to leave.
+pub const OWNER_OCCUPIER_PREMIUM: f64 = 0.01;
+
 /// What the flat at `i` is worth to `inv` living in it: the rent it saves
 /// (untaxed and never vacant), less its share of upkeep and property taxes.
 pub fn owner_occupier_value(w: &World, i: usize, inv: &Investor) -> f64 {
     let p = &w.p;
     let units = p.units[i].max(1) as f64;
     let bldg = building_value(w, i);
-    let upkeep = w.econ.maintenance_rate as f64 * construction_cost(w, i, p.land_use[i], p.floors[i]);
-    let n = units * p.asking_rent[i] as f64 - upkeep;
-    let own = Investor { t_inc: 0.0, ..*inv };
+    let upkeep = upkeep(w, i);
+    let rent = market_rent(w, i, p.land_use[i], p.units[i]) as f64 * rent_quality(p.condition[i]);
+    let n = units * rent - upkeep;
+    let own = Investor { t_inc: 0.0, r: inv.r + OWNER_OCCUPIER_PREMIUM, ..*inv };
     capitalize(w, &own, i, n, bldg, crate::property::idle_share(w, i)) / units
+}
+
+/// Cost premium for building on top of an existing, occupied building
+/// (strengthening, access, working around residents).
+pub const EXTENSION_PREMIUM: f64 = 1.25;
+/// Floors can be added up to this height (taller needs new foundations).
+pub const EXTENSION_MAX_FLOORS: u8 = 8;
+
+/// Adding floors: the best of putting 1 or 2 floors of the same use on top
+/// of a sound building, renovating the rest at the same time. No
+/// demolition, and the residents stay. Returns (floors added, cost, value of
+/// the whole extended building to `inv`), if any extension adds value.
+pub fn best_extension(w: &World, i: usize, inv: &Investor) -> Option<(u8, f64, f64)> {
+    let p = &w.p;
+    let u = p.land_use[i];
+    if !matches!(u, LandUse::Residential | LandUse::Commercial) || p.condition[i] < 0.5 || !p.road_access[i] {
+        return None;
+    }
+    let floors = p.floors[i];
+    let now = building_in_condition_value(w, i, inv, p.condition[i]);
+    let mut best: Option<(u8, f64, f64)> = None;
+    for add in 1..=2u8 {
+        let to = floors + add;
+        if to > EXTENSION_MAX_FLOORS || !permitted(w, i, u, to) {
+            break;
+        }
+        let bcost = construction_cost(w, i, u, to);
+        let cost = EXTENSION_PREMIUM * (bcost - construction_cost(w, i, u, floors)) + renovation_cost(w, i);
+        let units = units_for(w, u, to);
+        let added = units.saturating_sub(p.units[i]);
+        let occ = expected_occupancy(w, i, u, added);
+        let n = noi(w, i, u, units, occ, bcost);
+        let value = capitalize(w, inv, i, n, bcost, 1.0 - occ) - lease_up_loss(w, i, u, added, occ);
+        if value - now - cost > best.map_or(0.0, |b| b.2 - now - b.1) {
+            best = Some((add, cost, value));
+        }
+    }
+    best
 }
 
 /// Best redevelopment option for this parcel from `inv`'s perspective.
@@ -405,10 +542,10 @@ pub fn best_development(w: &World, i: usize, inv: &Investor) -> Option<DevOption
             if n <= 0.0 {
                 continue;
             }
-            let value = capitalize(w, inv, i, n, cost, 1.0 - occ);
+            let value = capitalize(w, inv, i, n, cost, 1.0 - occ) - lease_up_loss(w, i, u, units, occ);
             let residual = value - cost - demolition;
             if best.map_or(true, |b| residual > b.residual) {
-                best = Some(DevOption { land_use: u, floors, units, cost, value, residual });
+                best = Some(DevOption { land_use: u, floors, units, cost, value, residual, flat_price: 0.0 });
             }
         }
     }
@@ -451,7 +588,8 @@ pub fn serviced_site_value(w: &World, i: usize, inv: &Investor, land: f64) -> f6
             if n <= 0.0 {
                 continue;
             }
-            best = best.max(capitalize_at_land(w, inv, i, n, cost, 1.0 - occ, land) - cost);
+            let value = capitalize_at_land(w, inv, i, n, cost, 1.0 - occ, land) - lease_up_loss(w, i, u, units, occ);
+            best = best.max(value - cost);
         }
     }
     best
@@ -479,7 +617,12 @@ pub fn self_consistent_site_value(w: &World, i: usize, inv: &Investor) -> f64 {
 /// What `inv` would pay for the land + building as is, including the option
 /// to redevelop.
 pub fn valuation(w: &World, i: usize, inv: &Investor) -> f64 {
-    let cur = current_use_value(w, i, inv);
+    let mut cur = current_use_value(w, i, inv);
+    // A run-down building is worth at least what it would be renovated.
+    if w.p.land_use[i].is_private_use() && w.p.condition[i] < 0.6 {
+        let share = w.p.freehold_share(i);
+        cur = cur.max(share * (renovated_value(w, i, inv) - renovation_cost(w, i)));
+    }
     match best_development(w, i, inv) {
         // Redevelopment destroys the current building's value.
         Some(d) if d.residual > cur => d.residual,
@@ -549,6 +692,7 @@ impl World {
             }
         }
         let available = unemployed + 0.5 * self.latent_demand as f32 + 0.02 * self.n_alive_hh as f32;
+        self.labour_available = available;
         self.labour_slack = (available / (open_slots + 10.0)).clamp(0.05, 2.0);
         let (mut units, mut occupied) = (0f32, 0f32);
         for i in 0..self.p.len() {
@@ -558,7 +702,7 @@ impl World {
             }
         }
         self.biz_occupancy = if units > 50.0 { occupied / units } else { 0.9 };
-        for (k, sector) in [Sector::Retail, Sector::Industry].into_iter().enumerate() {
+        for (k, sector) in [Sector::Retail, Sector::Industry, Sector::Office].into_iter().enumerate() {
             let (n, workers) = self
                 .firms
                 .iter()

@@ -48,9 +48,14 @@ pub fn settle(w: &mut World) {
         h.cash -= tax;
         h.taxes_paid += tax as f32;
 
-        // Consumption: buffer-stock rule out of disposable income and cash.
+        // Consumption: buffer-stock rule out of disposable income and net
+        // worth (property and businesses too, not only cash: a rentier family
+        // spends out of its fortune). Retirees run their savings down twice
+        // as fast. Spending never exceeds the cash at hand.
         let disposable = (labor + capital + h.income_transfer as f64 - h.taxes_paid as f64 - rent).max(0.0);
-        let mut c = e.marginal_propensity_consume as f64 * disposable + e.wealth_consumption as f64 * h.cash.max(0.0);
+        let retired = if h.age_months > 65 * 12 { 2.0 } else { 1.0 };
+        let mut c = e.marginal_propensity_consume as f64 * disposable
+            + retired * e.wealth_consumption as f64 * h.wealth.max(h.cash).max(0.0);
         c = c.max((e.subsistence as f64).min(h.cash.max(0.0) * 0.5));
         c = c.min(h.cash.max(0.0));
         h.cash -= c;
@@ -74,9 +79,10 @@ pub fn settle(w: &mut World) {
 
 /// Recompute net worth: cash − mortgages + assessed property + firm equity.
 pub fn update_wealth(w: &mut World) {
-    let r = w.econ.outside_return as f64 + 0.05;
+    let r = w.econ.outside_return as f64 + 0.055;
     let mut wealth: Vec<f64> = w.hh.iter().map(|h| h.cash).collect();
     let mut debt = vec![0f64; w.hh.len()];
+    let mut business = vec![0f64; w.hh.len()];
     for i in 0..w.p.len() {
         if let Owner::Hh(id) = w.p.owner[i] {
             let v = w.parcel_value(i);
@@ -86,7 +92,9 @@ pub fn update_wealth(w: &mut World) {
     }
     for f in w.firms.iter().filter(|f| f.alive) {
         if let Owner::Hh(id) = f.owner {
-            wealth[id as usize] += f.cash.max(0.0) + (f.profit.max(0.0) as f64 * 12.0) / r;
+            let equity = f.cash.max(0.0) + (f.profit.max(0.0) as f64 * 12.0) / r;
+            wealth[id as usize] += equity;
+            business[id as usize] += equity;
         }
     }
     for (id, h) in w.hh.iter().enumerate() {
@@ -100,6 +108,7 @@ pub fn update_wealth(w: &mut World) {
         if h.alive {
             h.wealth = wealth[id];
             h.debt = debt[id];
+            h.business = business[id];
         }
     }
 }

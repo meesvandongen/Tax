@@ -177,7 +177,10 @@ fn unserviced_land_is_assessed_as_farmland() {
 /// goes elsewhere instead of becoming unbounded revenue per worker.
 #[test]
 fn retail_sales_per_worker_are_bounded() {
-    let sim = grown_city(120);
+    let mut sim = grown_city(120);
+    // (Check right after production: workers who leave later in the month
+    // would make last month's revenue look like more per worker.)
+    sim_core::production::run(&mut sim.world);
     let w = &sim.world;
     for f in w.firms.iter().filter(|f| f.alive && f.sector == sim_core::types::Sector::Retail && f.workers > 0) {
         let cap = w.econ.retail_output_per_worker * f.productivity * f.workers as f32;
@@ -193,9 +196,18 @@ fn public_works_buy_land_at_a_premium() {
     let w = &mut sim.world;
     let premium = 1.0 + w.cfg.policy.spending.purchase_premium as f64;
     assert!(premium > 1.0);
-    let i = (0..w.p.len())
+    // (A resident-owned home; if the grown city has none, hand one over.)
+    let i = match (0..w.p.len())
         .find(|&i| matches!(w.p.owner[i], Owner::Hh(_)) && w.p.land_use[i] == LandUse::Residential)
-        .expect("a resident-owned home");
+    {
+        Some(i) => i,
+        None => {
+            let i = (0..w.p.len()).find(|&i| w.p.land_use[i] == LandUse::Residential).expect("a home");
+            let id = (0..w.hh.len()).find(|&id| w.hh[id].alive).expect("a household");
+            w.p.owner[i] = Owner::Hh(id as u32);
+            i
+        }
+    };
     let Owner::Hh(id) = w.p.owner[i] else { unreachable!() };
     let value = sim_core::econ::valuation(w, i, &w.household_investor(id)).max(w.parcel_value(i));
     let (cash, debt) = (w.hh[id as usize].cash, w.p.mortgage[i] as f64);
@@ -260,9 +272,16 @@ fn roads_through_buildings_pay_full_compensation() {
     }
     sim_core::land::assess(w, true);
     let best = roads::candidates(w, 1e12);
-    let p = best.iter().find(|p| p.ratio() >= roads::MIN_RETURN).expect("no project pays");
+    // (Whether this project would pass the planner's return test depends on
+    // the grown city; what is tested here is what building it pays.)
+    let p = best.first().expect("no road project");
     let in_way: Vec<usize> = p.path.iter().copied().filter(|&i| w.p.land_use[i].is_building()).collect();
     assert!(!in_way.is_empty(), "a new road must cross the wall");
+    for &i in &in_way {
+        if w.p.owner[i] == Owner::Gov {
+            w.p.owner[i] = Owner::Absentee;
+        }
+    }
     let premium = 1.0 + w.cfg.policy.spending.purchase_premium as f64;
     let owed: f64 = in_way
         .iter()
@@ -376,4 +395,46 @@ fn flat_owners_are_bought_out_when_their_building_is_cleared() {
         assert!(!h.owns_home && h.home == sim_core::types::NONE);
         assert!((h.cash - before[k] - buyout).abs() < 1.0, "owner not paid the buyout");
     }
+}
+
+/// A developer must pay owner-occupiers enough that the policy's share of
+/// the building accepts: unanimity costs at least every owner's ask, and
+/// a threshold the unsold dwellings already meet costs only the buyout.
+#[test]
+fn collective_sales_pay_what_enough_owners_accept() {
+    let mut sim = grown_city(120);
+    let w = &mut sim.world;
+    let i = (0..w.p.len()).find(|&i| w.p.owned_flats[i] > 0).expect("no owned flats");
+    let floor = sim_core::econ::flat_buyout(w, i);
+    let moving = w.econ.relocation_months as f64 * w.p.asking_rent[i] as f64;
+    let top_ask = (0..w.hh.len())
+        .filter(|&id| w.hh[id].alive && w.hh[id].owns_home && w.hh[id].home == i as u32)
+        .map(|id| sim_core::econ::owner_occupier_value(w, i, &w.household_investor(id as u32)) + moving)
+        .fold(0.0, f64::max);
+    w.cfg.policy.collective_sale_threshold = 1.0;
+    let unanimous = sim_core::development::collective_sale_price(w, i);
+    assert!(unanimous >= floor && unanimous >= top_ask - 1e-6);
+    w.cfg.policy.collective_sale_threshold = (w.p.units[i] - w.p.owned_flats[i]) as f32 / w.p.units[i] as f32;
+    assert_eq!(sim_core::development::collective_sale_price(w, i), floor);
+}
+
+/// Adding floors: at most two at a time, never above the cap, and dearer
+/// than building those floors new.
+#[test]
+fn extensions_are_small_and_cost_a_premium() {
+    let sim = grown_city(120);
+    let w = &sim.world;
+    let inv = w.absentee_investor();
+    let mut seen = 0;
+    for i in 0..w.p.len() {
+        if let Some((add, cost, _)) = sim_core::econ::best_extension(w, i, &inv) {
+            let (u, f) = (w.p.land_use[i], w.p.floors[i]);
+            assert!(add <= 2 && f + add <= sim_core::econ::EXTENSION_MAX_FLOORS);
+            let plain =
+                sim_core::econ::construction_cost(w, i, u, f + add) - sim_core::econ::construction_cost(w, i, u, f);
+            assert!(cost > plain);
+            seen += 1;
+        }
+    }
+    assert!(seen > 0, "no building could add floors");
 }

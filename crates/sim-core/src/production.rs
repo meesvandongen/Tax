@@ -66,6 +66,10 @@ pub fn run(w: &mut World) {
                 let units = f.workers as f64 * e.pollution_per_worker as f64 * intensity;
                 (y, intensity as f32, abatement, units)
             }
+            Sector::Office => {
+                let a = crate::labour::office_tfp(w, &f, i) as f64;
+                (a * (f.skill_sum as f64).powf(e.office_labour_elasticity as f64), 0.0, 0.0, 0.0)
+            }
             Sector::Retail => {
                 // Each worker can serve a limited volume of customers; demand
                 // beyond that goes to shops elsewhere (imports).
@@ -81,6 +85,10 @@ pub fn run(w: &mut World) {
         }
         if f.sector == Sector::Industry {
             w.flows.exports += revenue;
+        }
+        if f.sector == Sector::Office {
+            w.flows.exports += revenue;
+            w.flows.service_exports += revenue;
         }
         value_added += revenue;
         emissions[i] += emitted as f32;

@@ -199,6 +199,14 @@ fn build_civic(w: &mut World) {
     let cost = econ::construction_cost(w, i, LandUse::Civic, 2);
     w.gov.cash -= cost;
     w.gov.spend_services += cost + paid;
-    let d = econ::DevOption { land_use: LandUse::Civic, floors: 2, units: 24, cost, value: cost, residual: 0.0 };
+    let d = econ::DevOption {
+        land_use: LandUse::Civic,
+        floors: 2,
+        units: 24,
+        cost,
+        value: cost,
+        residual: 0.0,
+        flat_price: 0.0,
+    };
     crate::development::start_construction(w, i, &d);
 }

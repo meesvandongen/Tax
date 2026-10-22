@@ -36,11 +36,14 @@ pub struct EconParams {
     // --- outside world (open-city closure)
     /// Monthly net income (after rent and taxes) a skill-1 household can get elsewhere.
     pub outside_utility: f32,
-    /// Real growth of outside opportunities per year.
+    /// Growth per year of every money amount (wages, costs, the outside
+    /// option). It scales all of them together, so it changes only the units:
+    /// it works like inflation. Zero by default, so money at year 300 means
+    /// what it meant at year 0; interest rates are real.
     pub outside_growth: f32,
     /// Effective tax rate on income elsewhere (for migration comparisons).
     pub outside_income_tax: f32,
-    /// Annual return demanded by outside capital.
+    /// Annual real return demanded by outside capital.
     pub outside_return: f32,
     /// Max immigrants per month as a fraction of population (plus a floor).
     pub immigration_rate: f32,
@@ -55,6 +58,11 @@ pub struct EconParams {
     pub subsistence: f32,
     /// Share of consumption spent at local shops (rest imported).
     pub local_spend_share: f32,
+    /// Import substitution: a larger city makes more of what it buys, so the
+    /// local share of spending rises toward `local_spend_max`, halfway there
+    /// at `local_spend_scale` households.
+    pub local_spend_max: f32,
+    pub local_spend_scale: f32,
     /// Commute cost per cell (~40 m) per month (time + money), in an
     /// uncongested town.
     pub commute_cost_per_cell: f32,
@@ -77,7 +85,23 @@ pub struct EconParams {
     pub export_demand_elasticity: f32,
     /// Monthly real export volume the outside market absorbs at the base price.
     pub export_market_size: f32,
+    /// Product variety: each export firm sells its own variety, so the market
+    /// for the city's exports grows with the number of export firms, as
+    /// `(firms / export_variety_firms)^export_variety` above that count
+    /// (0 = one homogeneous good with a fixed market; 1 = every firm brings
+    /// its own market, as for a small city in a large world).
+    pub export_variety: f32,
+    pub export_variety_firms: f32,
     pub industry_output_per_worker: f32,
+    /// Tradable services: revenue per unit of skill per month before
+    /// agglomeration, returns to scale within a firm (offices scale up more
+    /// easily than factories), the gain from office jobs nearby, and the
+    /// monthly real volume the outside market absorbs at the base price
+    /// (0 disables offices).
+    pub office_output_per_worker: f32,
+    pub office_labour_elasticity: f32,
+    pub office_agglomeration: f32,
+    pub office_market_size: f32,
     pub retail_output_per_worker: f32,
     pub labour_elasticity: f32,
     pub agglomeration: f32,
@@ -140,9 +164,9 @@ impl Default for EconParams {
     fn default() -> Self {
         EconParams {
             outside_utility: 1300.0,
-            outside_growth: 0.005,
+            outside_growth: 0.0,
             outside_income_tax: 0.25,
-            outside_return: 0.05,
+            outside_return: 0.045,
             immigration_rate: 0.006,
             moving_cost_months: 2.0,
 
@@ -152,19 +176,27 @@ impl Default for EconParams {
             wealth_consumption: 0.003,
             subsistence: 700.0,
             local_spend_share: 0.55,
+            local_spend_max: 0.7,
+            local_spend_scale: 20_000.0,
             commute_cost_per_cell: 9.0,
             congestion_scale: 20_000.0,
             congestion_elasticity: 0.6,
             location_logit_scale: 120.0,
             search_samples: 10,
             relocation_rate: 0.03,
-            deposit_return: 0.02,
+            deposit_return: 0.015,
             mean_lifetime_years: 45.0,
 
             industry_price: 1.0,
             export_demand_elasticity: 3.0,
             export_market_size: 60_000_000.0,
+            export_variety: 0.25,
+            export_variety_firms: 300.0,
             industry_output_per_worker: 5600.0,
+            office_output_per_worker: 3800.0,
+            office_labour_elasticity: 0.93,
+            office_agglomeration: 0.15,
+            office_market_size: 40_000_000.0,
             retail_output_per_worker: 9000.0,
             labour_elasticity: 0.85,
             agglomeration: 0.06,
@@ -188,7 +220,7 @@ impl Default for EconParams {
             housing_rent_adjust: 0.005,
             housing_queue_response: 0.3,
             loan_to_value: 0.7,
-            mortgage_rate: 0.05,
+            mortgage_rate: 0.045,
             expectation_memory: 24.0,
             speculation: 0.1,
             review_rate: 0.04,
@@ -215,6 +247,7 @@ impl EconParams {
         e.commute_cost_per_cell *= index;
         e.location_logit_scale *= index;
         e.industry_output_per_worker *= index;
+        e.office_output_per_worker *= index;
         e.retail_output_per_worker *= index;
         e.abatement_cost *= index;
         e.cost_per_floor *= index;
@@ -234,6 +267,11 @@ pub struct Policy {
     pub zoning: bool,
     /// Optional cap on building height (floors), 0 = none.
     pub height_limit: u8,
+    /// Share of a building's dwellings (the parcel owner's unsold ones
+    /// count as consenting) whose owners must accept a developer's offer
+    /// before a building of owner-occupied flats can be sold and cleared.
+    /// Holdouts are then bought out at the same price. 1 = unanimity.
+    pub collective_sale_threshold: f32,
 }
 
 impl Default for Policy {
@@ -243,6 +281,7 @@ impl Default for Policy {
             spending: SpendingPolicy::default(),
             zoning: false,
             height_limit: 0,
+            collective_sale_threshold: 0.8,
         })
     }
 }

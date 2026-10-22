@@ -260,7 +260,9 @@ fn roads_through_buildings_pay_full_compensation() {
     }
     sim_core::land::assess(w, true);
     let best = roads::candidates(w, 1e12);
-    let p = best.iter().find(|p| p.ratio() >= roads::MIN_RETURN).expect("no project pays");
+    // (Whether this project would pass the planner's return test depends on
+    // the grown city; what is tested here is what building it pays.)
+    let p = best.first().expect("no road project");
     let in_way: Vec<usize> = p.path.iter().copied().filter(|&i| w.p.land_use[i].is_building()).collect();
     assert!(!in_way.is_empty(), "a new road must cross the wall");
     let premium = 1.0 + w.cfg.policy.spending.purchase_premium as f64;

@@ -36,11 +36,14 @@ pub struct EconParams {
     // --- outside world (open-city closure)
     /// Monthly net income (after rent and taxes) a skill-1 household can get elsewhere.
     pub outside_utility: f32,
-    /// Real growth of outside opportunities per year.
+    /// Growth per year of every money amount (wages, costs, the outside
+    /// option). It scales all of them together, so it changes only the units:
+    /// it works like inflation. Zero by default, so money at year 300 means
+    /// what it meant at year 0; interest rates are real.
     pub outside_growth: f32,
     /// Effective tax rate on income elsewhere (for migration comparisons).
     pub outside_income_tax: f32,
-    /// Annual return demanded by outside capital.
+    /// Annual real return demanded by outside capital.
     pub outside_return: f32,
     /// Max immigrants per month as a fraction of population (plus a floor).
     pub immigration_rate: f32,
@@ -140,9 +143,9 @@ impl Default for EconParams {
     fn default() -> Self {
         EconParams {
             outside_utility: 1300.0,
-            outside_growth: 0.005,
+            outside_growth: 0.0,
             outside_income_tax: 0.25,
-            outside_return: 0.05,
+            outside_return: 0.045,
             immigration_rate: 0.006,
             moving_cost_months: 2.0,
 
@@ -158,7 +161,7 @@ impl Default for EconParams {
             location_logit_scale: 120.0,
             search_samples: 10,
             relocation_rate: 0.03,
-            deposit_return: 0.02,
+            deposit_return: 0.015,
             mean_lifetime_years: 45.0,
 
             industry_price: 1.0,
@@ -188,7 +191,7 @@ impl Default for EconParams {
             housing_rent_adjust: 0.005,
             housing_queue_response: 0.3,
             loan_to_value: 0.7,
-            mortgage_rate: 0.05,
+            mortgage_rate: 0.045,
             expectation_memory: 24.0,
             speculation: 0.1,
             review_rate: 0.04,

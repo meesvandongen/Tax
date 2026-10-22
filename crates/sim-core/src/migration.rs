@@ -194,7 +194,7 @@ pub fn emigration(w: &mut World) {
         for &id in &leaving {
             is_leaving[id as usize] = true;
         }
-        let r = w.econ.outside_return as f64 + 0.05;
+        let r = w.econ.outside_return as f64 + 0.055;
         for fid in 0..w.firms.len() {
             let f = &w.firms[fid];
             if let Owner::Hh(id) = f.owner {

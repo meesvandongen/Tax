@@ -74,7 +74,7 @@ pub fn settle(w: &mut World) {
 
 /// Recompute net worth: cash − mortgages + assessed property + firm equity.
 pub fn update_wealth(w: &mut World) {
-    let r = w.econ.outside_return as f64 + 0.05;
+    let r = w.econ.outside_return as f64 + 0.055;
     let mut wealth: Vec<f64> = w.hh.iter().map(|h| h.cash).collect();
     let mut debt = vec![0f64; w.hh.len()];
     for i in 0..w.p.len() {

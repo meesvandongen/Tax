@@ -30,10 +30,12 @@ contradict the literature.
   mesh (bridging the river), a ring street, homes, shops, workshops, a town hall and about 400 households,
   nearly all employed. Everything after that grows from agent decisions.
 * Time step: one month. Indicators are recorded every tick.
-* **Money of the day.** The outside world grows by `outside_growth` a year. Every money-denominated parameter
-  (wages, construction and demolition costs, farm rents, amenity and service values, commute costs, road costs,
-  thresholds, and the money amounts in tax schedules: income brackets, wealth and estate exemptions, head and
-  pollution taxes) is indexed to that path, so relative prices stay put over long runs.
+* **Real money.** Money amounts mean the same at year 300 as at year 0, and interest rates are real (outside
+  capital 4.5%, deposits 1.5%, mortgages 4.5%). The optional `outside_growth` (0 by default) scales every
+  money-denominated parameter together: wages, construction and demolition costs, farm rents, amenity and
+  service values, commute costs, road costs, thresholds, and the money amounts in tax schedules (income
+  brackets, wealth and estate exemptions, head and pollution taxes). Since everything scales at once, it
+  changes only the units, like inflation, not living standards.
 
 ## Agents
 
@@ -406,7 +408,7 @@ during an export slump (a town whose jobs are almost all in export industry, wit
   Shops only serve residents, so the city stops at roughly 30 000–35 000 households (seed 1, Georgist,
   150 years). A 192×192 map gives the same size. Making congestion 4× weaker adds about 8%. A 4× larger export
   market roughly doubles the city (69 000 households after 150 years, until it runs out of serviced land on
-  the default map). Outside capital is never the limit: absentee investors have unlimited funds at a 6.5%
+  the default map). Outside capital is never the limit: absentee investors have unlimited funds at a 6%
   return. Real cities keep growing by adding export sectors (offices, services, tourism) and through growing
   markets, which this model leaves out.
 * **Not modelled:** monetary policy, credit cycles beyond simple mortgages, international trade beyond a single

@@ -35,6 +35,10 @@ pub struct Metrics {
     pub poverty_rate: f32,
     pub absentee_land_share: f32,
     pub resident_owner_share: f32,
+    /// Households owning the home they live in (a flat or a whole building).
+    pub owner_occupier_share: f32,
+    pub flat_purchases: u32,
+    pub flat_sales: u32,
     // --- housing and land
     pub median_rent: f32,
     pub rent_burden: f32,
@@ -128,6 +132,7 @@ pub fn compute(w: &World) -> Metrics {
     let mut incomes = Vec::new();
     let mut wealths = Vec::new();
     let mut burdens = Vec::new();
+    let mut owner_occupiers = 0u32;
     let mut util = 0.0f64;
     let mut wage_sum = 0.0f64;
     let mut commute_sum = 0.0f64;
@@ -151,7 +156,9 @@ pub fn compute(w: &World) -> Metrics {
         let inc = h.income_labor + h.income_capital + h.income_transfer;
         incomes.push(inc);
         wealths.push(h.wealth);
-        if h.home != NONE && p.owner[h.home as usize] != Owner::Hh(id as u32) {
+        if h.home != NONE && (h.owns_home || p.owner[h.home as usize] == Owner::Hh(id as u32)) {
+            owner_occupiers += 1;
+        } else if h.home != NONE {
             burdens.push(h.rent / inc.max(1.0));
         }
         util += h.utility as f64;
@@ -160,6 +167,7 @@ pub fn compute(w: &World) -> Metrics {
     m.unemployment = 1.0 - m.employed as f32 / nh;
     m.mean_wage = if m.employed > 0 { (wage_sum / m.employed as f64) as f32 } else { 0.0 };
     m.mean_utility = (util / nh as f64) as f32;
+    m.owner_occupier_share = owner_occupiers as f32 / nh;
     m.avg_commute = if commuters > 0 { (commute_sum / commuters as f64) as f32 } else { 0.0 };
     m.pollution_exposure = (exposure / nh as f64) as f32;
     let med_income = median(&mut incomes.clone());
@@ -229,9 +237,12 @@ pub fn compute(w: &World) -> Metrics {
         if crate::property::taxable(w, i) {
             let lv = p.assessed_land[i] as f64;
             land_total += lv;
+            // Owner-occupied flats carry their share of the land.
+            let freehold = p.freehold_share(i);
+            land_resident += lv * (1.0 - freehold);
             match p.owner[i] {
-                Owner::Absentee => land_absentee += lv,
-                Owner::Hh(_) => land_resident += lv,
+                Owner::Absentee => land_absentee += lv * freehold,
+                Owner::Hh(_) => land_resident += lv * freehold,
                 _ => {}
             }
             farm_rent_total += 12.0 * w.econ.farm_rent as f64 * (0.4 + w.terrain.fertility[i] as f64);
@@ -276,6 +287,8 @@ pub fn compute(w: &World) -> Metrics {
     m.buildings_started = f.buildings_started;
     m.buildings_completed = f.buildings_completed;
     m.renovations = f.renovations;
+    m.flat_purchases = f.flat_purchases;
+    m.flat_sales = f.flat_sales;
     m.emissions = f.emissions;
     m.co2_index = (f.emissions + commute_sum * 0.05) as f32;
     m.deterred_workers = f.deterred_workers;

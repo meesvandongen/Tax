@@ -89,6 +89,13 @@ pub fn update_wealth(w: &mut World) {
             wealth[id as usize] += f.cash.max(0.0) + (f.profit.max(0.0) as f64 * 12.0) / r;
         }
     }
+    for (id, h) in w.hh.iter().enumerate() {
+        if h.alive && h.owns_home {
+            let i = h.home as usize;
+            wealth[id] += w.flat_assessment(i) - h.flat_mortgage;
+            debt[id] += h.flat_mortgage;
+        }
+    }
     for (id, h) in w.hh.iter_mut().enumerate() {
         if h.alive {
             h.wealth = wealth[id];

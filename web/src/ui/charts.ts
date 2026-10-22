@@ -67,6 +67,7 @@ export const CHARTS: ChartDef[] = [
       { label: 'Gini income', value: (m) => m.gini_income, color: '#4e79a7' },
       { label: 'top 10% wealth', value: (m) => m.top10_wealth_share, color: '#edc948' },
       { label: 'absentee-owned land', value: (m) => m.absentee_land_share, color: '#9c755f' },
+      { label: 'owner-occupiers', value: (m) => m.owner_occupier_share, color: '#59a14f' },
     ],
     fmt: pct,
   },

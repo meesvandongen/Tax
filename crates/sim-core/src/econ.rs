@@ -255,8 +255,9 @@ pub fn current_use_value(w: &World, i: usize, inv: &Investor) -> f64 {
     let p = &w.p;
     let u = p.land_use[i];
     match u {
+        // The parcel owner holds only the dwellings not sold as flats.
         LandUse::Residential | LandUse::Commercial | LandUse::Industrial => {
-            building_in_condition_value(w, i, inv, p.condition[i])
+            p.freehold_share(i) * building_in_condition_value(w, i, inv, p.condition[i])
         }
         LandUse::Farm | LandUse::Wild => {
             let farm = w.econ.farm_rent as f64 * (0.4 + w.terrain.fertility[i] as f64);
@@ -276,8 +277,8 @@ pub fn current_use_value(w: &World, i: usize, inv: &Investor) -> f64 {
     }
 }
 
-/// Value of the existing building as an income property if it were in
-/// `condition` (0 = derelict, 1 = new).
+/// Value of the whole existing building (freehold and flats) as an income
+/// property if it were in `condition` (0 = derelict, 1 = new).
 pub fn building_in_condition_value(w: &World, i: usize, inv: &Investor, condition: f32) -> f64 {
     let p = &w.p;
     let u = p.land_use[i];
@@ -340,15 +341,48 @@ pub fn leased_slots(w: &World, i: usize) -> u16 {
 }
 
 /// What the owner must pay sitting tenants to clear the building:
-/// relocation allowances for households, lease buy-outs for firms.
+/// relocation allowances for households, lease buy-outs for firms, and the
+/// market value of owner-occupied flats plus a premium.
 pub fn tenant_compensation(w: &World, i: usize) -> f64 {
     let months = w.econ.relocation_months as f64;
     let rent = w.p.asking_rent[i] as f64;
     match w.p.land_use[i] {
-        LandUse::Residential => months * rent * w.p.occupied[i] as f64,
+        LandUse::Residential => {
+            let owned = w.p.owned_flats[i] as f64;
+            let flats = if owned > 0.0 { owned * flat_buyout(w, i) } else { 0.0 };
+            months * rent * (w.p.occupied[i] as f64 - owned) + flats
+        }
         LandUse::Commercial | LandUse::Industrial => 2.0 * months * rent * leased_slots(w, i) as f64,
         _ => 0.0,
     }
+}
+
+/// Premium over market value paid to flat owners whose building is
+/// cleared (a collective sale or compulsory purchase).
+pub const FLAT_BUYOUT_PREMIUM: f64 = 0.2;
+
+/// Market value of one dwelling in residential building `i`: what outside
+/// capital would pay for it as a let flat.
+pub fn flat_value(w: &World, i: usize) -> f64 {
+    let units = w.p.units[i].max(1) as f64;
+    building_in_condition_value(w, i, &w.absentee_investor(), w.p.condition[i]) / units
+}
+
+/// What a developer pays an owner-occupier to clear their flat.
+pub fn flat_buyout(w: &World, i: usize) -> f64 {
+    (1.0 + FLAT_BUYOUT_PREMIUM) * flat_value(w, i)
+}
+
+/// What the flat at `i` is worth to `inv` living in it: the rent it saves
+/// (untaxed and never vacant), less its share of upkeep and property taxes.
+pub fn owner_occupier_value(w: &World, i: usize, inv: &Investor) -> f64 {
+    let p = &w.p;
+    let units = p.units[i].max(1) as f64;
+    let bldg = building_value(w, i);
+    let upkeep = w.econ.maintenance_rate as f64 * construction_cost(w, i, p.land_use[i], p.floors[i]);
+    let n = units * p.asking_rent[i] as f64 - upkeep;
+    let own = Investor { t_inc: 0.0, ..*inv };
+    capitalize(w, &own, i, n, bldg, crate::property::idle_share(w, i)) / units
 }
 
 /// Best redevelopment option for this parcel from `inv`'s perspective.

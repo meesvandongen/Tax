@@ -88,6 +88,9 @@ pub struct Flows {
     pub buildings_completed: u32,
     pub renovations: u32,
     pub demolitions: u32,
+    /// Tenants who bought the flat they live in, and owners who sold theirs.
+    pub flat_purchases: u32,
+    pub flat_sales: u32,
     pub firms_opened: u32,
     pub firms_closed: u32,
     pub deaths: u32,
@@ -242,6 +245,7 @@ impl World {
     /// Remove a household that leaves. The caller must first dispose of its
     /// parcels and firms (emigrants sell them, see `migration::emigration`).
     pub fn remove_household(&mut self, id: u32) {
+        crate::housing::sell_flat(self, id);
         let h = &mut self.hh[id as usize];
         if !h.alive {
             return;
@@ -360,9 +364,15 @@ impl World {
         }
     }
 
-    /// Market value estimate of a parcel (assessed land + building).
+    /// Market value estimate of what the parcel's owner holds: assessed land
+    /// + building, less the flats owned by their occupants.
     pub fn parcel_value(&self, i: usize) -> f64 {
-        (self.p.assessed_land[i] + self.p.assessed_bldg[i]) as f64
+        self.p.freehold_share(i) * (self.p.assessed_land[i] + self.p.assessed_bldg[i]) as f64
+    }
+
+    /// Assessed land + building per dwelling.
+    pub fn flat_assessment(&self, i: usize) -> f64 {
+        (self.p.assessed_land[i] + self.p.assessed_bldg[i]) as f64 / self.p.units[i].max(1) as f64
     }
 
     pub fn push_event(&mut self, e: Event) {

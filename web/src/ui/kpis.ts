@@ -24,6 +24,7 @@ export const KPIS: Kpi[] = [
   { label: 'Rent burden', help: 'Median rent / income of renters', value: (m) => m.rent_burden, fmt: pct, good: -1 },
   { label: 'Gini wealth', help: 'Wealth inequality (0–1)', value: (m) => m.gini_wealth, fmt: dec, good: -1 },
   { label: 'Absentee land', help: 'Share of land value owned by outside investors', value: (m) => m.absentee_land_share, fmt: pct, good: -1 },
+  { label: 'Owner-occupiers', help: 'Households owning the flat or building they live in', value: (m) => m.owner_occupier_share, fmt: pct, good: 0 },
   { label: 'Avg floors', help: 'Average building height', value: (m) => m.avg_floors, fmt: dec, good: 0 },
   { label: 'Urban cells', help: 'Urban footprint (sprawl)', value: (m) => m.urban_cells, fmt: num, good: 0 },
   { label: 'Green cover', help: 'Mean vegetation over land', value: (m) => m.green_cover, fmt: pct, good: 1 },

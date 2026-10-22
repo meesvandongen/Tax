@@ -39,9 +39,9 @@ contradict the literature.
 
 | agent | state | decides |
 |---|---|---|
-| **Household** | skill (log-normal), effort cost, cash, debt, home, lease rent, job, age, generation, net worth | work or not, which job, where to live, how much to consume, whether to stay, buying property |
+| **Household** | skill (log-normal), effort cost, cash, debt, home, lease rent, owned flat and its mortgage, job, age, generation, net worth | work or not, which job, where to live, rent or buy the flat, how much to consume, whether to stay, buying property |
 | **Firm** | sector (retail / industry / public), parcel, owner, productivity, wage rate, workers, cash, emission intensity | hiring and firing, wages, abatement, exit |
-| **Owner** (a household, an absentee investor or the government) | title, mortgage, Harberger markup | rents, maintenance, build / wait / keep, sell, self-assessed value |
+| **Owner** (a household, an absentee investor or the government) | title to the parcel (the freehold: land, common parts and every dwelling not sold as a flat), mortgage, Harberger markup | rents, maintenance, build / wait / keep, sell, self-assessed value, selling flats to their tenants |
 | **Absentee capital** | deep pockets, required return = outside return + 1.5% | buys and develops land when the after-tax value beats the price; its income leaves the city; stops paying tax on parcels worth nothing |
 | **Government** | cash or debt, programme budgets | taxes (per the active modules), spends by the user's mix, builds roads, parks and civic buildings |
 | **Outside world** | utility level by skill, export price (AR(1) business cycle × downward-sloping demand), interest | the open-city closure: migration in and out |
@@ -72,7 +72,8 @@ contradict the literature.
    * deposit interest;
    * income, wealth and head taxes;
    * consumption, with sales tax and an import share.
-9. **housing market:** searching households choose homes; landlords adjust asking rents, and leases renew yearly.
+9. **housing market:** searching households choose homes; **tenure:** tenants decide whether to buy the flat they
+   rent; landlords adjust asking rents, and leases renew yearly.
 10. **commercial rents:** renegotiation with tenant firms.
 11. **assessment:** quarterly mass appraisal; **declare:** Harberger self-assessment; **land market:** forced
     sales, voluntary sales and Harberger buy-outs.
@@ -125,7 +126,11 @@ commercial or industrial; floors go up to 40, or 3 for industry, subject to the 
   occupancy, not today's boom or slump price;
 * **clearing the site:** demolition, plus compensation for sitting tenants: a relocation allowance of
   `relocation_months` (6) of rent per household, and twice that per leased job slot as a lease buy-out for a firm.
-  The owner pays it to the tenants when construction starts.
+  Owner-occupiers are bought out of their flats at market value plus 20% (a collective sale). The owner pays all
+  of it when construction starts, so a building of owned flats is much harder to redevelop than a rented one.
+* **owned flats:** the parcel owner values only its own share of the building (the dwellings not sold as flats).
+  Flat owners pay their share of the building's property taxes, upkeep and renovations; the parcel owner still
+  decides on maintenance.
 
 An existing building is valued as it stands. Let business premises are worth at least the lease the sitting
 tenant pays, as an appraiser would value them, not only what a newcomer would bid in today's labour market.
@@ -197,6 +202,18 @@ includes the point (condition 0.12) below which nobody new will rent a dwelling.
   ten-year citywide rent cycle of ±15%, which the leveraged land residual turned into tenfold land value swings.
   A full building with people queueing for homes is a shortage landlords can see directly, so there rents rise
   fast (`housing_queue_response`). That is what lets a young, housing-short city grow.
+* **Owning a flat.** A household that cannot afford a whole parcel can still own its home: a tenant may buy the
+  flat it rents, once a year at lease renewal:
+  * the parcel owner sells at its own valuation of a dwelling (its building value / units) plus 3%;
+  * the household values owning at the rent it saves, never vacant and untaxed (imputed rent is not income),
+    minus its share of upkeep and property taxes, at its own discount rate and wealth-tax rate;
+  * it buys if that beats the price plus transfer tax, it has the 30% deposit, transfer tax and three months'
+    subsistence in cash, and the mortgage payment is at most 35% of its budget.
+
+  Owners pay no rent, search for a new home a third as often as tenants, and sell the flat back to the parcel
+  owner at market value when they move, emigrate or run out of cash (then they rent it on). The flat counts in
+  net worth (its share of the assessed parcel value, less the mortgage) and so in wealth and estate taxes, and
+  heirs inherit it.
 * **Consumption.** A buffer-stock rule out of disposable income (after the rent actually paid; owner-occupiers
   pay none) and cash. Part is spent at local shops; the rest is imported.
 * **Migration** (open city):
@@ -340,21 +357,26 @@ real staff by year 200). Export income per worker grew fourfold, wages fell and 
 
 ## What the model currently says, and how much to trust it
 
-These are 6 seeds × 40 years, from `taxsim compare` (mean ± standard error; see the README). Differences
+These are 6 seeds × 40 years, from `taxsim compare` (mean ± standard error; see the README), with
+owner-occupied flats. Before flats, outside capital owned almost all land under every preset except Georgist,
+Harberger and the minimal-tax ones (≈ 100% vs ≈ 63–77%); now it owns 29–52% everywhere, and 56–76% of
+households own their home. Differences
 smaller than a couple of standard errors are noise. Over 200 years (seed 1) the status quo, Georgist and
 Harberger presets pass every audit check, and cities settle at roughly 26 000–36 000 households. The Nordic
 preset passes in 6 of 8 seeds over 100 years; in the other two, unemployment briefly exceeds the 25% bound
 during an export slump (a town whose jobs are almost all in export industry, with a single shop or two).
 
 * **Georgist** (6% land value tax, dividend):
-  * a larger city than the status quo (≈ 13 700 vs ≈ 11 700 households, about three standard errors), higher
+  * a larger city than the status quo (≈ 15 100 vs ≈ 11 900 households, about five standard errors), higher
     output, lower rents and taller buildings;
-  * more land owned by residents (absentee share ≈ 73% vs ≈ 100%) and much higher average resident welfare;
-  * but modest revenue: land rent is small where land is plentiful and buildings are priced near construction
+  * more land owned by residents (absentee share ≈ 34% vs ≈ 48%) and higher average resident welfare;
+  * but fewer owner-occupiers (≈ 57% vs ≈ 75%): the 6% land tax is a large fixed charge on every flat, and
+    the status quo's surplus rebate leaves tenants more cash for a deposit;
+  * and modest revenue: land rent is small where land is plentiful and buildings are priced near construction
     cost, so a 6% land tax raises about a third of the status quo's revenue;
   * and much higher wealth inequality (no income or wealth taxes).
 * **Wealth tax** (2% above 1M): lower wealth inequality than the status quo and more departures of wealthy
-  households. City size is within noise.
+  households, and a slightly smaller city (about two standard errors).
 * **Nordic** (high income tax and VAT): the lowest inequality, the highest revenue and many deterred workers
   (only the flat tax deters more). In this run it is also one of the largest cities.
 * **Harberger at 4% of total value:** the smallest city, with almost no building above one floor: the
@@ -363,9 +385,12 @@ during an export slump (a town whose jobs are almost all in export industry, wit
 * **Head tax:** a large but very unequal city with little revenue.
 
 **Known limitations and sensitivities.** Read the results as "what these mechanisms produce", not as forecasts.
-* **Ownership granularity.** Ownership is per parcel (a whole building). Most households can never afford one,
-  so outside capital owns most rental property under most regimes. Unit-level ownership (condos,
-  owner-occupation) is the most important missing piece for wealth dynamics.
+* **Ownership granularity.** Households can own a whole parcel or the single flat they live in. They cannot
+  buy flats to let them out (buy-to-let), and only tenants buy, so there is no market for flats between
+  households: a flat changes hands through the parcel owner. Flats pay their share of a Harberger tax on the
+  owner's declaration, which only covers the parcel owner's share, so flats under Harberger are approximate.
+  Owner-occupation settles high (roughly 70–85%, above most real cities) because the deposit is the only
+  barrier: there is no mortgage approval beyond a payment-to-income cap and no preference for renting.
 * **Public goods matter a lot.** Service coverage adds up to 380/month of location value, and roads gate
   development. Low-revenue regimes therefore grow less. This is the Henry George mechanism, but its strength is
   a parameter (`fields.rs`: `SERVICE_VALUE`, `PARK_VALUE`, `POLLUTION_COST`).
@@ -375,8 +400,15 @@ during an export slump (a town whose jobs are almost all in export industry, wit
   Real cities mostly prevent this with use zoning. In test runs, turning zoning on cut rebuilds by 2–10×.
 * **Stochastic and path-dependent.** Housing cycles emerge from construction lags, and terrain matters. Use many
   seeds.
-* **City size** is set by congestion and the outside demand for exports (`congestion_scale`,
-  `export_market_size`). Without them agglomeration makes the city fill the map.
+* **City size** is set by the outside demand for exports (`export_market_size`), much more than by congestion
+  or the map. Industry is the only export sector, and its market does not grow with the outside economy: the
+  export price falls to about 0.7 once industrial employment reaches about 17 000, and employment stops there.
+  Shops only serve residents, so the city stops at roughly 30 000–35 000 households (seed 1, Georgist,
+  150 years). A 192×192 map gives the same size. Making congestion 4× weaker adds about 8%. A 4× larger export
+  market roughly doubles the city (69 000 households after 150 years, until it runs out of serviced land on
+  the default map). Outside capital is never the limit: absentee investors have unlimited funds at a 6.5%
+  return. Real cities keep growing by adding export sectors (offices, services, tourism) and through growing
+  markets, which this model leaves out.
 * **Not modelled:** monetary policy, credit cycles beyond simple mortgages, international trade beyond a single
   export good, local traffic congestion and the street network's actual shape (commutes are straight-line
   distance times a fixed detour factor, with a city-wide congestion factor, so roads add value by unlocking land
@@ -390,12 +422,13 @@ during an export slump (a town whose jobs are almost all in export industry, wit
 **Done (this version):**
 * all tax instruments above, with a revenue-recycling mix;
 * an open city with migration, housing, labour and land markets, development with real options, maintenance and
-  decay, Harberger buy-outs, inheritance, pollution and nature;
+  decay, Harberger buy-outs, owner-occupied flats (rent vs. buy), inheritance, pollution and nature;
 * counterfactual distortion metrics and mechanism tests;
 * the 3D browser front end with overlays, inspector and baseline comparison, plus the native batch runner.
 
 **Next:**
-* unit-level ownership and owner-occupation (rent vs. buy);
+* buy-to-let flats and a market for flats between households;
+* more export sectors (offices and tradable services) and a growing export market;
 * congestion-aware commuting and transit;
 * land value increment tax and land value capture of public investment;
 * revenue-neutral comparisons (automatically scale a regime to match a target revenue);

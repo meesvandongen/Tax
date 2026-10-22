@@ -33,8 +33,12 @@ pub fn taxable(w: &World, i: usize) -> bool {
 pub fn owner_costs(w: &mut World) {
     let e = w.econ.clone();
     let mut deferred = 0u32;
+    // Upkeep per dwelling this month, charged to flat owners below.
+    let mut flat_upkeep = vec![0f64; w.p.len()];
     for i in 0..w.p.len() {
         let owner = w.p.owner[i];
+        // The parcel owner pays the freehold's share; flat owners pay theirs.
+        let share = w.p.freehold_share(i);
         // ---- property-type taxes
         if taxable(w, i) {
             let land = w.p.assessed_land[i] as f64;
@@ -50,7 +54,7 @@ pub fn owner_costs(w: &mut World) {
             // after a year of arrears the city takes the title.
             if owner == Owner::Absentee && due > 0.0 && (i as u64 + w.tick) % 6 == 0 {
                 let inv = w.absentee_investor();
-                let worthless = econ::valuation(w, i, &inv) < due;
+                let worthless = econ::valuation(w, i, &inv) < due * share;
                 w.p.arrears[i] = if worthless { w.p.arrears[i].max(1) } else { 0 };
             }
             let tax = if w.p.arrears[i] > 0 {
@@ -65,6 +69,7 @@ pub fn owner_costs(w: &mut World) {
             w.p.tax_last[i] = tax as f32;
             if tax > 0.0 {
                 w.gov.cash += tax;
+                let tax = tax * share;
                 match owner {
                     Owner::Hh(id) => {
                         let h = &mut w.hh[id as usize];
@@ -95,12 +100,15 @@ pub fn owner_costs(w: &mut World) {
             let slipped = (c - e.depreciation).max(0.0);
             let pv_gain = econ::building_in_condition_value(w, i, &inv, kept)
                 - econ::building_in_condition_value(w, i, &inv, slipped);
-            let can_pay = w.owner_cash(owner) > upkeep;
+            let can_pay = w.owner_cash(owner) > upkeep * share;
             if pv_gain >= upkeep && can_pay {
                 match owner {
-                    Owner::Hh(id) => w.hh[id as usize].cash -= upkeep,
-                    Owner::Gov => w.gov.cash -= upkeep,
-                    Owner::Absentee => w.flows.absentee_income -= upkeep,
+                    Owner::Hh(id) => w.hh[id as usize].cash -= upkeep * share,
+                    Owner::Gov => w.gov.cash -= upkeep * share,
+                    Owner::Absentee => w.flows.absentee_income -= upkeep * share,
+                }
+                if w.p.owned_flats[i] > 0 {
+                    flat_upkeep[i] = upkeep / w.p.units[i] as f64;
                 }
                 w.flows.construction_spend += upkeep;
                 w.p.condition[i] = (w.p.condition[i] + 0.25 * e.depreciation).min(1.0);
@@ -123,6 +131,30 @@ pub fn owner_costs(w: &mut World) {
         }
     }
     w.flows.deferred_maintenance = deferred;
+
+    // ---- flat owners: their share of the building's taxes and upkeep, and
+    // their mortgage
+    for id in 0..w.hh.len() {
+        let h = &w.hh[id];
+        if !h.alive || !h.owns_home {
+            continue;
+        }
+        let i = h.home as usize;
+        let tax = w.p.tax_last[i] as f64 / w.p.units[i].max(1) as f64;
+        let mortgage = h.flat_mortgage * (e.mortgage_rate as f64 / 12.0 + 0.003);
+        let h = &mut w.hh[id];
+        h.cash -= tax + flat_upkeep[i] + mortgage;
+        h.taxes_paid += tax as f32;
+        h.flat_mortgage *= 0.997;
+    }
+}
+
+/// Charge every owner-occupier of a flat in building `i` `amount` (their
+/// share of a renovation).
+pub fn charge_flat_owners(w: &mut World, i: usize, amount: f64) {
+    for h in w.hh.iter_mut().filter(|h| h.alive && h.owns_home && h.home == i as u32) {
+        h.cash -= amount;
+    }
 }
 
 /// Tax foreclosure: title passes to the city, which auctions the parcel

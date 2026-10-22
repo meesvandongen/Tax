@@ -40,6 +40,8 @@ pub fn new_household(w: &mut World, skill: f32) -> Household {
         cash,
         debt: 0.0,
         home: NONE,
+        owns_home: false,
+        flat_mortgage: 0.0,
         rent: 0.0,
         job: NONE,
         wage: 0.0,
@@ -186,6 +188,7 @@ pub fn emigration(w: &mut World) {
             for &i in &parcels[id as usize] {
                 crate::land::sell_on_departure(w, i);
             }
+            crate::housing::sell_flat(w, id);
         }
         let mut is_leaving = vec![false; w.hh.len()];
         for &id in &leaving {

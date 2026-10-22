@@ -357,21 +357,26 @@ real staff by year 200). Export income per worker grew fourfold, wages fell and 
 
 ## What the model currently says, and how much to trust it
 
-These are 6 seeds × 40 years, from `taxsim compare` (mean ± standard error; see the README). Differences
+These are 6 seeds × 40 years, from `taxsim compare` (mean ± standard error; see the README), with
+owner-occupied flats. Before flats, outside capital owned almost all land under every preset except Georgist,
+Harberger and the minimal-tax ones (≈ 100% vs ≈ 63–77%); now it owns 29–52% everywhere, and 56–76% of
+households own their home. Differences
 smaller than a couple of standard errors are noise. Over 200 years (seed 1) the status quo, Georgist and
 Harberger presets pass every audit check, and cities settle at roughly 26 000–36 000 households. The Nordic
 preset passes in 6 of 8 seeds over 100 years; in the other two, unemployment briefly exceeds the 25% bound
 during an export slump (a town whose jobs are almost all in export industry, with a single shop or two).
 
 * **Georgist** (6% land value tax, dividend):
-  * a larger city than the status quo (≈ 13 700 vs ≈ 11 700 households, about three standard errors), higher
+  * a larger city than the status quo (≈ 15 100 vs ≈ 11 900 households, about five standard errors), higher
     output, lower rents and taller buildings;
-  * more land owned by residents (absentee share ≈ 73% vs ≈ 100%) and much higher average resident welfare;
-  * but modest revenue: land rent is small where land is plentiful and buildings are priced near construction
+  * more land owned by residents (absentee share ≈ 34% vs ≈ 48%) and higher average resident welfare;
+  * but fewer owner-occupiers (≈ 57% vs ≈ 75%): the 6% land tax is a large fixed charge on every flat, and
+    the status quo's surplus rebate leaves tenants more cash for a deposit;
+  * and modest revenue: land rent is small where land is plentiful and buildings are priced near construction
     cost, so a 6% land tax raises about a third of the status quo's revenue;
   * and much higher wealth inequality (no income or wealth taxes).
 * **Wealth tax** (2% above 1M): lower wealth inequality than the status quo and more departures of wealthy
-  households. City size is within noise.
+  households, and a slightly smaller city (about two standard errors).
 * **Nordic** (high income tax and VAT): the lowest inequality, the highest revenue and many deterred workers
   (only the flat tax deters more). In this run it is also one of the largest cities.
 * **Harberger at 4% of total value:** the smallest city, with almost no building above one floor: the

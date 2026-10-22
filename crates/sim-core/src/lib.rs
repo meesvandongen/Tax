@@ -10,7 +10,8 @@
 //! * [`tax`] — pluggable tax modules; [`presets`] — named policies
 //! * [`econ`] — valuation / development feasibility used by every agent
 //! * markets: [`labour`], [`housing`], [`land`], [`production`]
-//! * [`government`], [`migration`], [`environment`], [`metrics`], [`snapshot`]
+//! * [`government`], [`roads`], [`migration`], [`environment`], [`metrics`], [`snapshot`]
+//! * [`mesh`] — the irregular parcel grid; [`grid`] — the field raster
 
 #![allow(clippy::needless_range_loop, clippy::unnecessary_map_or, clippy::manual_is_multiple_of)]
 
@@ -30,12 +31,14 @@ pub mod housing;
 pub mod inspect;
 pub mod labour;
 pub mod land;
+pub mod mesh;
 pub mod metrics;
 pub mod migration;
 pub mod presets;
 pub mod production;
 pub mod property;
 pub mod rng;
+pub mod roads;
 pub mod sim;
 pub mod snapshot;
 pub mod tax;

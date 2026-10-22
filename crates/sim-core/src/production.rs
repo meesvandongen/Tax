@@ -5,14 +5,13 @@
 //! through imports, absentee income and emigrants' wealth.
 
 use crate::fields::OUTSIDE_SHOP_CAPACITY;
-use crate::grid::exp_blur;
 use crate::labour::industry_tfp;
 use crate::types::*;
 use crate::world::World;
 
 pub fn run(w: &mut World) {
     let e = w.econ.clone();
-    let n = w.dims.len();
+    let n = w.mesh.len();
     let nf = w.firms.len();
 
     // ---- wages
@@ -38,9 +37,9 @@ pub fn run(w: &mut World) {
     for f in w.firms.iter().filter(|f| f.alive && f.sector == Sector::Retail) {
         cap[f.parcel as usize] += f.workers as f32 * f.productivity;
     }
-    let s_field = exp_blur(&cap, w.dims, crate::fields::SHOP_LAMBDA);
+    let s_field = w.mesh.blur(&cap, crate::fields::SHOP_LAMBDA);
     let ratio: Vec<f32> = w.retail_pool.iter().zip(&s_field).map(|(c, s)| c / (s + OUTSIDE_SHOP_CAPACITY)).collect();
-    let draw = exp_blur(&ratio, w.dims, crate::fields::SHOP_LAMBDA);
+    let draw = w.mesh.blur(&ratio, crate::fields::SHOP_LAMBDA);
     let pool_total: f64 = w.retail_pool.iter().map(|&v| v as f64).sum();
 
     // ---- per-firm accounts

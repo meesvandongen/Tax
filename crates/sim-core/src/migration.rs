@@ -138,11 +138,11 @@ fn median_vacant_rent(w: &World) -> f32 {
     rents[mid]
 }
 
-/// A road cell on the map edge (for arrival/departure effects).
+/// A parcel on the map edge level with the centre (for arrival/departure effects).
 pub fn edge_cell(w: &World) -> u32 {
-    let (cx, cy) = w.dims.xy(w.center);
-    let i = if cx < w.dims.w / 2 { w.dims.idx(0, cy) } else { w.dims.idx(w.dims.w - 1, cy) };
-    i as u32
+    let [cx, cy] = w.mesh.centroid[w.center];
+    let x = if cx < w.dims.w as f32 / 2.0 { 0.0 } else { w.dims.w as f32 - 1.0 };
+    w.mesh.cell_at(x, cy) as u32
 }
 
 pub fn emigration(w: &mut World) {

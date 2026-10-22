@@ -204,10 +204,10 @@ pub fn permitted(w: &World, i: usize, u: LandUse, floors: u8) -> bool {
         return false;
     }
     if pol.zoning {
-        let ring = w.dims.ring(i, 2);
+        let ring = w.mesh.near(i, 2.5);
         match u {
-            LandUse::Residential => !ring.iter().any(|&j| w.p.land_use[j] == LandUse::Industrial),
-            LandUse::Industrial => !ring.iter().any(|&j| w.p.land_use[j] == LandUse::Residential),
+            LandUse::Residential => !ring.iter().any(|&j| w.p.land_use[j as usize] == LandUse::Industrial),
+            LandUse::Industrial => !ring.iter().any(|&j| w.p.land_use[j as usize] == LandUse::Residential),
             _ => true,
         }
     } else {
@@ -354,7 +354,7 @@ pub fn tenant_compensation(w: &World, i: usize) -> f64 {
 /// Best redevelopment option for this parcel from `inv`'s perspective.
 pub fn best_development(w: &World, i: usize, inv: &Investor) -> Option<DevOption> {
     let p = &w.p;
-    if !p.road_access[i] || !p.land_use[i].is_developable() || crate::government::on_street_plan(w, i) {
+    if !p.road_access[i] || !p.land_use[i].is_developable() {
         return None;
     }
     let demolition = demolition_cost(w, i) + tenant_compensation(w, i);
@@ -392,11 +392,16 @@ pub fn vacant_site_value(w: &World, i: usize, inv: &Investor) -> f64 {
 
 /// [`vacant_site_value`] if the land were assessed at `land`.
 pub fn vacant_site_value_at_land(w: &World, i: usize, inv: &Investor, land: f64) -> f64 {
-    let p = &w.p;
-    if !p.road_access[i]
-        || matches!(p.land_use[i], LandUse::Water | LandUse::Road | LandUse::Park | LandUse::Civic)
-        || crate::government::on_street_plan(w, i)
-    {
+    if !w.p.road_access[i] {
+        return 0.0;
+    }
+    serviced_site_value(w, i, inv, land)
+}
+
+/// What the site would be worth as if vacant were it served by a street,
+/// with its land assessed at `land` (the value a new road unlocks).
+pub fn serviced_site_value(w: &World, i: usize, inv: &Investor, land: f64) -> f64 {
+    if matches!(w.p.land_use[i], LandUse::Water | LandUse::Road | LandUse::Park | LandUse::Civic) {
         return 0.0;
     }
     let mut best = 0.0f64;

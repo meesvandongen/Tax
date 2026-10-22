@@ -313,14 +313,15 @@ pub fn sell_on_departure(w: &mut World, i: usize) {
 }
 
 /// Government purchase (parks, roads, civic buildings) at the owner's
-/// valuation, or the assessed value if higher.
+/// valuation, or the assessed value if higher, plus the purchase premium.
 pub fn compulsory_purchase(w: &mut World, i: usize) -> f64 {
     let owner = w.p.owner[i];
     if owner == Owner::Gov {
         return 0.0;
     }
     let inv = w.investor_for(owner);
-    let price = econ::valuation(w, i, &inv).max(w.parcel_value(i));
+    let premium = 1.0 + w.cfg.policy.spending.purchase_premium as f64;
+    let price = premium * econ::valuation(w, i, &inv).max(w.parcel_value(i));
     execute(w, i, Owner::Gov, price);
     w.gov.spend_compensation += price;
     price

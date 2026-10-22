@@ -3,21 +3,21 @@
 //! from agent decisions.
 
 use crate::econ;
-use crate::government::set_road;
 use crate::migration::new_household;
+use crate::roads::{set_road, Routes};
 use crate::types::*;
 use crate::world::World;
 
 fn pick_center(w: &mut World) -> usize {
-    let dims = w.dims;
-    let (mx, my) = (dims.w as f32 / 2.0, dims.h as f32 / 2.0);
+    let m = &w.mesh;
+    let (mx, my) = (w.dims.w as f32 / 2.0, w.dims.h as f32 / 2.0);
     let mut best = (0usize, f32::INFINITY);
-    for i in 0..dims.len() {
+    for i in 0..m.len() {
         if w.terrain.water[i] {
             continue;
         }
-        let (x, y) = dims.xy(i);
-        let d_center = ((x as f32 - mx).powi(2) + (y as f32 - my).powi(2)).sqrt();
+        let [x, y] = m.centroid[i];
+        let d_center = ((x - mx).powi(2) + (y - my).powi(2)).sqrt();
         let wd = w.terrain.water_dist[i];
         let score = d_center / 6.0 + (wd - 2.0).abs() * 2.0 + w.terrain.slope[i] * 3.0;
         if score < best.1 {
@@ -27,62 +27,74 @@ fn pick_center(w: &mut World) -> usize {
     best.0
 }
 
+/// Lay a road along the cheapest route from `from` to `to`: following rows
+/// of parcels, avoiding slopes, bridging water only if `bridges`.
+fn lay_route(w: &mut World, from: usize, to: usize, bridges: bool) {
+    let enter = |j: usize, _: usize| {
+        if w.p.land_use[j] == LandUse::Road {
+            0.3
+        } else if w.terrain.water[j] {
+            if bridges {
+                6.0
+            } else {
+                f64::INFINITY
+            }
+        } else {
+            1.0 + w.terrain.slope[j] as f64 / 4.0
+        }
+    };
+    let starts: Vec<(usize, usize, f64)> = (0..4).map(|e| (from, e, 0.0)).collect();
+    let routes = Routes::search(w, &starts, enter, |_| 0.0, 0.8, f64::INFINITY, usize::MAX, Some(to));
+    let (cost, s) = routes.best(to);
+    if cost.is_finite() {
+        for i in routes.path(s) {
+            set_road(w, i);
+        }
+    }
+}
+
 pub fn found_settlement(w: &mut World) {
-    let dims = w.dims;
     let center = pick_center(w);
     w.center = center;
-    let (cx, cy) = dims.xy(center);
+    let [cx, cy] = w.mesh.centroid[center];
+    let (wf, hf) = (w.dims.w as f32, w.dims.h as f32);
+    let at =
+        |w: &World, dx: f32, dy: f32| w.mesh.cell_at((cx + dx).clamp(1.0, wf - 2.0), (cy + dy).clamp(1.0, hf - 2.0));
 
-    // Main roads crossing at the centre (bridging the river), plus a small grid.
-    let reach = 18usize;
-    for x in cx.saturating_sub(reach)..(cx + reach).min(dims.w) {
-        set_road(w, dims.idx(x, cy));
+    // Main roads out of the centre (bridging the river), and a ring street.
+    set_road(w, center);
+    let reach = 18.0;
+    for (dx, dy) in [(reach, 0.0), (-reach, 0.0), (0.0, reach), (0.0, -reach)] {
+        let to = at(w, dx, dy);
+        lay_route(w, center, to, true);
     }
-    for y in cy.saturating_sub(reach)..(cy + reach).min(dims.h) {
-        set_road(w, dims.idx(cx, y));
-    }
-    let r = 7usize;
-    for k in [cx.saturating_sub(5), cx + 5] {
-        if k >= dims.w {
-            continue;
-        }
-        for y in cy.saturating_sub(r)..(cy + r).min(dims.h) {
-            let i = dims.idx(k, y);
-            if !w.terrain.water[i] {
-                set_road(w, i);
-            }
-        }
-    }
-    for k in [cy.saturating_sub(5), cy + 5] {
-        if k >= dims.h {
-            continue;
-        }
-        for x in cx.saturating_sub(r)..(cx + r).min(dims.w) {
-            let i = dims.idx(x, k);
-            if !w.terrain.water[i] {
-                set_road(w, i);
-            }
+    let r = 5.0;
+    let ring: Vec<usize> = [(r, r), (r, -r), (-r, -r), (-r, r)].iter().map(|&(dx, dy)| at(w, dx, dy)).collect();
+    for k in 0..4 {
+        if !w.terrain.water[ring[k]] && !w.terrain.water[ring[(k + 1) % 4]] {
+            lay_route(w, ring[k], ring[(k + 1) % 4], false);
         }
     }
 
     // Farms on fertile land around the village.
-    for i in 0..dims.len() {
+    for i in 0..w.p.len() {
         if w.p.land_use[i] != LandUse::Wild {
             continue;
         }
-        let d = dims.manhattan(i, center);
-        if d < 34.0 && w.terrain.fertility[i] > 0.5 && w.terrain.vegetation[i] < 0.6 && w.rng.chance(0.85) {
+        let d = w.mesh.dist(i, center);
+        if d < 27.0 && w.terrain.fertility[i] > 0.5 && w.terrain.vegetation[i] < 0.6 && w.rng.chance(0.85) {
             w.p.land_use[i] = LandUse::Farm;
             w.p.nature[i] = 0.12;
         }
     }
 
     // Candidate building plots: road-accessible land near the centre.
-    let mut plots: Vec<usize> = (0..dims.len())
+    let m = &w.mesh;
+    let mut plots: Vec<usize> = (0..w.p.len())
         .filter(|&i| w.p.road_access[i] && w.p.land_use[i].is_developable() && !w.terrain.water[i])
-        .filter(|&i| dims.manhattan(i, center) <= 14.0 && !crate::government::on_street_plan(w, i))
+        .filter(|&i| m.dist(i, center) <= 12.0)
         .collect();
-    plots.sort_by(|&a, &b| dims.manhattan(a, center).total_cmp(&dims.manhattan(b, center)).then(a.cmp(&b)));
+    plots.sort_by(|&a, &b| m.dist(a, center).total_cmp(&m.dist(b, center)).then(a.cmp(&b)));
 
     let n_hh = w.cfg.initial_households as usize;
     let units_per_floor = w.econ.res_units_per_floor as usize;
@@ -101,9 +113,9 @@ pub fn found_settlement(w: &mut World) {
             civic = Some(i);
             continue;
         }
-        let (x, _) = dims.xy(i);
+        let x = m.centroid[i][0];
         // A workshop district on the far side of the river from the centre.
-        if ind_cells.len() < n_ind && k > plots.len() / 3 && (x as isize - cx as isize).abs() > 4 {
+        if ind_cells.len() < n_ind && k > plots.len() / 3 && (x - cx).abs() > 4.0 {
             ind_cells.push(i);
         } else if com_cells.len() < n_com && k % 4 == 1 {
             com_cells.push(i);

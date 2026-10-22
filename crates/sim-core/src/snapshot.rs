@@ -28,8 +28,16 @@ pub struct Snapshot {
     pub overlays: Vec<f32>,
     /// Commuter pairs (home cell, job cell), for traffic animation.
     pub commuters: Vec<u32>,
-    /// Static terrain heights (sent once).
+    /// Static terrain heights per parcel (sent once).
     pub heights: Vec<f32>,
+    /// The parcel mesh (sent once): corner positions (x, y pairs), the four
+    /// corners of each parcel, the parcel across each edge (`NONE` at the
+    /// border), corner heights, and the parcel under each raster pixel.
+    pub mesh_verts: Vec<f32>,
+    pub mesh_quads: Vec<u32>,
+    pub mesh_adj: Vec<u32>,
+    pub vert_heights: Vec<f32>,
+    pub pixel_cells: Vec<u32>,
 }
 
 pub const CELL_STRIDE: usize = 8;
@@ -45,12 +53,18 @@ pub const FLAG_RECENT_SALE: u8 = 128;
 
 impl Snapshot {
     pub fn update(&mut self, w: &World, max_commuters: usize) {
-        let n = w.dims.len();
+        let n = w.mesh.len();
         let p = &w.p;
         self.cells.resize(n * CELL_STRIDE, 0);
         self.overlays.resize(n * OVERLAYS.len(), 0.0);
         if self.heights.len() != n {
+            let m = &w.mesh;
             self.heights = w.terrain.height.clone();
+            self.mesh_verts = m.verts.iter().flatten().copied().collect();
+            self.mesh_quads = m.quads.iter().flatten().copied().collect();
+            self.mesh_adj = m.adj.iter().flatten().copied().collect();
+            self.vert_heights = w.terrain.vert_height.clone();
+            self.pixel_cells = m.pixel_cell.clone();
         }
 
         // Owner wealth classes: deciles among resident households.
@@ -166,7 +180,7 @@ pub fn place_tents(w: &mut World) {
         .filter(|&i| matches!(w.p.land_use[i], LandUse::Park | LandUse::Vacant | LandUse::Wild) && w.p.road_access[i])
         .collect();
     let c = w.center;
-    spots.sort_by(|&a, &b| w.dims.manhattan(a, c).total_cmp(&w.dims.manhattan(b, c)).then(a.cmp(&b)));
+    spots.sort_by(|&a, &b| w.mesh.dist(a, c).total_cmp(&w.mesh.dist(b, c)).then(a.cmp(&b)));
     let per_spot = 6usize;
     let mut left = unhoused;
     for i in spots {

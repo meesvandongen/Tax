@@ -16,7 +16,7 @@ pub fn begin_month(w: &mut World) {
 pub fn settle(w: &mut World) {
     let e = w.econ.clone();
     let sales = w.taxes.sales_rate();
-    let n = w.dims.len();
+    let n = w.mesh.len();
     let mut pool = vec![0f32; n];
     let center = w.center;
     let mut imports = 0.0;

@@ -63,6 +63,11 @@ pub struct Metrics {
     pub avg_commute: f32,
     pub co2_index: f32,
     pub parks: u32,
+    /// Road parcels, road projects built so far, and road parcels laid
+    /// through buildings the government had to buy.
+    pub road_cells: u32,
+    pub road_projects: u32,
+    pub roads_expropriated: u32,
     // --- government
     pub revenue: f64,
     pub revenue_by_tax: Vec<(String, f64)>,
@@ -118,7 +123,6 @@ fn median(v: &mut [f32]) -> f32 {
 pub fn compute(w: &World) -> Metrics {
     let mut m = Metrics { tick: w.tick, year: w.year(), ..Default::default() };
     let p = &w.p;
-    let dims = w.dims;
 
     // ---- households
     let mut incomes = Vec::new();
@@ -140,7 +144,7 @@ pub fn compute(w: &World) -> Metrics {
             m.employed += 1;
             wage_sum += h.wage as f64;
             if h.home != NONE {
-                commute_sum += dims.manhattan(h.home as usize, w.firms[h.job as usize].parcel as usize) as f64;
+                commute_sum += w.mesh.route_dist(h.home as usize, w.firms[h.job as usize].parcel as usize) as f64;
                 commuters += 1;
             }
         }
@@ -202,6 +206,9 @@ pub fn compute(w: &World) -> Metrics {
         if u == LandUse::Park {
             m.parks += 1;
         }
+        if u == LandUse::Road {
+            m.road_cells += 1;
+        }
         if u.is_building() {
             bldg_count += 1;
             floors_w += p.floors[i] as f64;
@@ -229,11 +236,8 @@ pub fn compute(w: &World) -> Metrics {
             }
             farm_rent_total += 12.0 * w.econ.farm_rent as f64 * (0.4 + w.terrain.fertility[i] as f64);
         }
-        if matches!(u, LandUse::Wild | LandUse::Farm | LandUse::Vacant)
-            && p.road_access[i]
-            && !crate::government::on_street_plan(w, i)
-        {
-            let urban_nb = dims.ring(i, 1).iter().filter(|&&j| p.land_use[j].is_building()).count();
+        if matches!(u, LandUse::Wild | LandUse::Farm | LandUse::Vacant) && p.road_access[i] {
+            let urban_nb = w.mesh.near(i, 1.5).iter().filter(|&&j| p.land_use[j as usize].is_building()).count();
             if urban_nb >= 3 {
                 m.idle_urban_lots += 1;
             }
@@ -289,6 +293,8 @@ pub fn compute(w: &World) -> Metrics {
     m.spend_services = g.spend_services;
     m.spend_infrastructure = g.spend_infrastructure;
     m.spend_parks = g.spend_parks;
+    m.road_projects = g.road_projects;
+    m.roads_expropriated = g.roads_expropriated;
     m.spend_dividend = g.spend_dividend;
     m.spend_welfare = g.spend_welfare;
     m.spend_interest = g.spend_interest;

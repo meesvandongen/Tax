@@ -1,11 +1,12 @@
 // Main-thread handle to a simulation worker.
 
-import type { Frame, FromWorker, Metrics, Policy, Preset, SimEvent, ToWorker } from './protocol';
+import type { Frame, FromWorker, MeshData, Metrics, Policy, Preset, SimEvent, ToWorker } from './protocol';
 
 export interface ReadyInfo {
   width: number;
   height: number;
   heights: Float32Array;
+  mesh: MeshData;
   overlays: string[];
   presets: Preset[];
   config: { seed: number; policy: Policy; [k: string]: unknown };

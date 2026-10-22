@@ -28,6 +28,7 @@ pub fn preset(name: &str) -> Option<Policy> {
         dividend,
         welfare,
         max_debt_to_revenue: 1.0,
+        purchase_premium: 0.25,
     };
     let p = match name {
         "status_quo" => Policy {

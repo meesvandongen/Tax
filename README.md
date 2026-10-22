@@ -13,6 +13,10 @@ work, where to live, what to build and how tall, whether to hold land idle, whet
 whether to stay in the city. Land prices, rents, sprawl, inequality, vacancy, decay, homelessness and capital
 flight all *emerge* from those rules, and you can watch them happen:
 
+* a Townscaper-style irregular parcel grid, with streets that curve along its rows and terraced houses whose
+  roofs and colours are fitted to their neighbours by wave function collapse;
+* a road planner that buys land at a premium when serviced land runs short, and only builds streets whose
+  unlocked land value exceeds their cost;
 * tall buildings or sprawl into the forest, fenced idle lots, cranes, boarded-up derelict buildings, tents;
 * commuter traffic, families arriving and leaving (wealthy departures in gold), smog drifting from industry;
 * land-value, rent, tax, pollution, amenity, ownership and speculation overlays;
@@ -98,8 +102,10 @@ The mechanism tests check properties the model must have by construction:
 * a land value tax never changes the chosen building height;
 * a building tax never raises it;
 * land taxes capitalize into land values;
-* private development never builds on the mapped street plan;
-* a road blocked by a building expropriates it at full compensation;
+* public works buy land at the owner's valuation plus the purchase premium;
+* roads are built only while serviced land is short, and only projects whose unlocked land value exceeds their cost;
+* a road through a building buys it at full value plus the premium, and compensates its tenants;
+* the road network stays connected;
 * long runs stay finite;
 * a city grown for 60 years passes every audit check;
 * land without street access is assessed as farmland, and shop sales per worker are bounded.

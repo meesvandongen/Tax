@@ -263,6 +263,10 @@ pub struct SpendingPolicy {
     pub welfare: f32,
     /// Fraction of revenue that may be borrowed beyond income (deficit).
     pub max_debt_to_revenue: f32,
+    /// Premium over market value the government pays when it buys land for
+    /// roads, parks and civic buildings (owners are bought out, not merely
+    /// compensated).
+    pub purchase_premium: f32,
 }
 
 impl Default for SpendingPolicy {
@@ -274,6 +278,7 @@ impl Default for SpendingPolicy {
             dividend: 0.0,
             welfare: 0.2,
             max_debt_to_revenue: 1.0,
+            purchase_premium: 0.25,
         }
     }
 }

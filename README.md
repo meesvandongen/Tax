@@ -27,8 +27,8 @@ flight all *emerge* from those rules, and you can watch them happen:
 
 ## Quick start
 
-Requirements: Rust (stable) with the `wasm32-unknown-unknown` target, and Node 22.18+ with corepack
-(pnpm is pinned in `web/package.json`).
+Requirements: Rust (stable) with the `wasm32-unknown-unknown` target, and Node 24 with corepack 0.36+
+(pnpm 12 is pinned in `web/package.json`; `npm install -g corepack@latest` if needed).
 
 ```sh
 rustup target add wasm32-unknown-unknown

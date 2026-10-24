@@ -19,5 +19,17 @@ fi
 rustup target add wasm32-unknown-unknown >/dev/null 2>&1 || true
 
 cd web
-npm ci
-npm run build
+
+# pnpm comes from the packageManager field in web/package.json. If the pnpm on
+# PATH is missing or can't switch to that version, get it through a corepack
+# recent enough for pnpm 12 (the one bundled with Node is too old).
+export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+want=$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")
+if [ "$(pnpm --version 2>/dev/null)" != "$want" ]; then
+  echo "installing pnpm $want through corepack"
+  npm install -g corepack@latest
+  corepack enable pnpm
+fi
+
+pnpm install --frozen-lockfile
+pnpm run build

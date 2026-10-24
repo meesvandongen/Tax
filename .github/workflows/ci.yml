@@ -28,14 +28,19 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+      # pnpm comes from the packageManager field in web/package.json. pnpm 12 needs a
+      # newer corepack than the one bundled with Node.
+      - run: npm install -g corepack@latest && corepack enable
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: npm ci
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
         working-directory: web
-      - run: npm run build
+      - run: pnpm run lint
+        working-directory: web
+      - run: pnpm run build
         working-directory: web
       - uses: actions/upload-artifact@v4
         with:

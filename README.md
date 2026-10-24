@@ -27,16 +27,18 @@ flight all *emerge* from those rules, and you can watch them happen:
 
 ## Quick start
 
-Requirements: Rust (stable) with the `wasm32-unknown-unknown` target, and Node 20+.
+Requirements: Rust (stable) with the `wasm32-unknown-unknown` target, and Node 22.18+ with corepack
+(pnpm is pinned in `web/package.json`).
 
 ```sh
 rustup target add wasm32-unknown-unknown
+corepack enable
 cd web
-npm install
-npm run dev        # builds the wasm module and starts Vite on http://localhost:5173
+pnpm install
+pnpm run dev       # builds the wasm module and starts Vite+ on http://localhost:5173
 ```
 
-`npm run build` produces a static site in `web/dist/` that runs on any static host (no special headers needed).
+`pnpm run build` produces a static site in `web/dist/` that runs on any static host (no special headers needed).
 
 ### Deploying to Cloudflare Workers
 
@@ -44,10 +46,10 @@ npm run dev        # builds the wasm module and starts Vite on http://localhost:
 use the repository root as the root directory and:
 
 * **Build command:** `bash scripts/build-web.sh`. It installs a minimal Rust toolchain if the build image
-  has none, then runs `npm ci && npm run build` in `web/`.
-* **Deploy command:** `npx wrangler deploy`
+  has none, then runs `pnpm install --frozen-lockfile && pnpm run build` in `web/`.
+* **Deploy command:** `pnpm dlx wrangler deploy`
 
-Locally: `bash scripts/build-web.sh && npx wrangler deploy`.
+Locally: `bash scripts/build-web.sh && pnpm dlx wrangler deploy`.
 
 ### Headless experiments
 
@@ -104,7 +106,7 @@ docs/             architecture, model specification, research notes
 
 ```sh
 cargo test --release              # unit tests + mechanism invariance tests
-cd web && npm run build && npm run smoke   # headless browser smoke test (set CHROMIUM=/path/to/chrome)
+cd web && pnpm run build && pnpm run smoke   # headless browser smoke test (set CHROMIUM=/path/to/chrome)
 ```
 
 The mechanism tests check properties the model must have by construction:

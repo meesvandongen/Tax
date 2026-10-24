@@ -1,4 +1,4 @@
-// Capture README screenshots: node scripts/screenshot.mjs city.jpg land-value.jpg (after npm run build).
+// Capture README screenshots: node scripts/screenshot.mjs city.jpg land-value.jpg (after pnpm run build).
 import { chromium } from 'playwright-core';
 import { createServer } from 'http';
 import { readFile } from 'fs/promises';

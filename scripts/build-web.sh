@@ -18,6 +18,15 @@ if ! command -v cargo >/dev/null 2>&1; then
 fi
 rustup target add wasm32-unknown-unknown >/dev/null 2>&1 || true
 
+# pnpm comes from the packageManager field in web/package.json, through corepack.
+export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+if ! corepack enable pnpm 2>/dev/null; then
+  # Node's bin directory is not writable: put the pnpm shim in a user directory.
+  mkdir -p "$HOME/.local/bin"
+  corepack enable --install-directory "$HOME/.local/bin" pnpm
+  export PATH="$HOME/.local/bin:$PATH"
+fi
+
 cd web
-npm ci
-npm run build
+pnpm install --frozen-lockfile
+pnpm run build
